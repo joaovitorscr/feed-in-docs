@@ -4,3 +4,6 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
   msw: false
+
+minimumReleaseAge: 1440
+blockExoticSubdeps: true
