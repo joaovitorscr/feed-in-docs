@@ -201,6 +201,7 @@ export async function generateLlmsTxt(input: string) {
   start.search = "";
   const prefix = scopePath(start);
   const queue = [start.href, ...(await sitemapPages(start, prefix))];
+  const scheduled = new Set(queue);
   const seen = new Set<string>();
   const pages: Array<Page & { outputUrl: string }> = [];
   let failed = 0;
@@ -230,7 +231,11 @@ export async function generateLlmsTxt(input: string) {
     for (const page of results) {
       if (!page) continue;
       if (page.title) pages.push(page);
-      for (const link of page.links) if (!seen.has(link) && !queue.includes(link)) queue.push(link);
+      for (const link of page.links) {
+        if (scheduled.has(link)) continue;
+        scheduled.add(link);
+        queue.push(link);
+      }
     }
   }
   if (!pages.length) throw new Error("No documentation pages were found at this URL.");
