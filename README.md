@@ -1,21 +1,25 @@
-# Next.js template
+# Feed in Docs
 
-This is a Next.js template with shadcn/ui.
+Paste a documentation URL and get a copyable `llms.txt` index. The app reads up to 40 HTML pages on the same origin and documentation path. It uses a page's declared Markdown alternate URL when available and otherwise links to the HTML page.
 
-## Adding components
+## Run locally
 
-To add components to your app, run the following command:
-
-```bash
-npx shadcn@latest add button
+```sh
+corepack enable
+pnpm install
+pnpm dev
 ```
 
-This will place the ui components in the `components` directory.
+Open http://localhost:3000.
 
-## Using components
+## Checks
 
-To use the components in your app, import them as follows:
-
-```tsx
-import { Button } from "@/components/ui/button";
+```sh
+pnpm lint
+pnpm format:check
+pnpm typecheck
+pnpm build
+pnpm check:react
 ```
+
+This tool produces an index of links and descriptions, not a copy of the full documentation. Give the resulting text to your agent directly. Some sites require JavaScript to expose navigation, so they may yield fewer pages.
