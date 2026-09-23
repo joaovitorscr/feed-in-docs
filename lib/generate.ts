@@ -2,9 +2,10 @@ import { load } from "cheerio";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
-const MAX_PAGES = 40;
 const MAX_BYTES = 1_000_000;
+const MAX_SITEMAP_BYTES = 10_000_000;
 const TIMEOUT_MS = 8_000;
+const CONCURRENCY = 8;
 
 type Page = { title: string; project: string; description: string; url: string; links: string[] };
 
@@ -46,7 +47,7 @@ async function assertPublicUrl(url: URL) {
   }
 }
 
-async function fetchText(url: URL, expectedOrigin: string) {
+async function fetchText(url: URL, expectedOrigin: string, sitemap = false) {
   let current = url;
   for (let redirects = 0; redirects < 4; redirects++) {
     await assertPublicUrl(current);
@@ -55,7 +56,10 @@ async function fetchText(url: URL, expectedOrigin: string) {
     const response = await fetch(current, {
       redirect: "manual",
       signal: AbortSignal.timeout(TIMEOUT_MS),
-      headers: { "User-Agent": "FeedInDocs/1.0", Accept: "text/html" },
+      headers: {
+        "User-Agent": "FeedInDocs/1.0",
+        Accept: sitemap ? "application/xml, text/xml" : "text/html",
+      },
     });
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
@@ -65,15 +69,57 @@ async function fetchText(url: URL, expectedOrigin: string) {
     }
     if (!response.ok) throw new Error(`Documentation returned HTTP ${response.status}.`);
     const type = response.headers.get("content-type") ?? "";
-    if (!type.includes("text/html") && !type.includes("text/markdown"))
+    if (
+      !type.includes("text/html") &&
+      !type.includes("text/markdown") &&
+      !(sitemap && (type.includes("xml") || type.includes("text/plain")))
+    )
       throw new Error("This URL did not return a documentation page.");
+    const maxBytes = sitemap ? MAX_SITEMAP_BYTES : MAX_BYTES;
     const length = Number(response.headers.get("content-length") ?? 0);
-    if (length > MAX_BYTES) throw new Error("A documentation page is too large.");
+    if (length > maxBytes) throw new Error("A documentation page is too large.");
     const text = await response.text();
-    if (text.length > MAX_BYTES) throw new Error("A documentation page is too large.");
+    if (text.length > maxBytes) throw new Error("A documentation page is too large.");
     return { text, type, url: current };
   }
   throw new Error("Documentation redirected too many times.");
+}
+
+async function sitemapPages(start: URL, prefix: string) {
+  const sitemapQueue = [new URL("/sitemap.xml", start).href];
+  const seenSitemaps = new Set<string>();
+  const pages = new Set<string>();
+  while (sitemapQueue.length) {
+    const href = sitemapQueue.shift()!;
+    if (seenSitemaps.has(href)) continue;
+    seenSitemaps.add(href);
+    try {
+      const { text } = await fetchText(new URL(href), start.origin, true);
+      const $ = load(text, { xmlMode: true });
+      $("sitemap > loc").each((_, element) => {
+        try {
+          const url = new URL($(element).text());
+          if (url.origin === start.origin && !seenSitemaps.has(url.href))
+            sitemapQueue.push(url.href);
+        } catch {
+          /* Ignore malformed sitemap entries. */
+        }
+      });
+      $("url > loc").each((_, element) => {
+        try {
+          const url = new URL($(element).text());
+          url.hash = "";
+          url.search = "";
+          if (url.origin === start.origin && url.pathname.startsWith(prefix)) pages.add(url.href);
+        } catch {
+          /* Ignore malformed sitemap entries. */
+        }
+      });
+    } catch {
+      /* Link crawling still works when no sitemap is available. */
+    }
+  }
+  return pages;
 }
 
 function clean(text: string) {
@@ -84,11 +130,13 @@ function clean(text: string) {
 }
 
 function scopePath(url: URL) {
-  const path = url.pathname.replace(/\/$/, "");
-  const last = path.split("/").at(-1)?.toLowerCase();
-  if (!path || path === "/") return "/";
-  if (last === "docs" || last === "documentation") return path + "/";
-  return path.slice(0, path.lastIndexOf("/") + 1);
+  const segments = url.pathname.split("/").filter(Boolean);
+  const docsIndex = segments.findIndex((segment) =>
+    ["docs", "documentation"].includes(segment.toLowerCase()),
+  );
+  if (docsIndex !== -1) return `/${segments.slice(0, docsIndex + 1).join("/")}/`;
+  if (url.pathname.endsWith("/")) return url.pathname;
+  return url.pathname.slice(0, url.pathname.lastIndexOf("/") + 1);
 }
 
 function parsePage(html: string, url: URL, prefix: string): Page {
@@ -152,13 +200,14 @@ export async function generateLlmsTxt(input: string) {
   start.hash = "";
   start.search = "";
   const prefix = scopePath(start);
-  const queue = [start.href];
+  const queue = [start.href, ...(await sitemapPages(start, prefix))];
   const seen = new Set<string>();
   const pages: Array<Page & { outputUrl: string }> = [];
+  let failed = 0;
 
-  while (queue.length && seen.size < MAX_PAGES) {
+  while (queue.length) {
     const batch: string[] = [];
-    while (queue.length && batch.length < 5 && seen.size < MAX_PAGES) {
+    while (queue.length && batch.length < CONCURRENCY) {
       const href = queue.shift()!;
       if (seen.has(href)) continue;
       seen.add(href);
@@ -173,6 +222,7 @@ export async function generateLlmsTxt(input: string) {
           return { ...page, outputUrl: markdownUrl(result.text, result.url) };
         } catch (error) {
           if (href === start.href) throw error;
+          failed++;
           return null;
         }
       }),
@@ -195,6 +245,6 @@ export async function generateLlmsTxt(input: string) {
   return {
     text: lines.join("\n").trim() + "\n",
     count: pages.length,
-    limited: seen.size >= MAX_PAGES,
+    failed,
   };
 }

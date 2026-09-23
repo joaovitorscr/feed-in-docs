@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-type Result = { text: string; count: number; limited: boolean };
+type Result = { text: string; count: number; failed: number };
 
 export default function Page() {
   const [url, setUrl] = useState("");
@@ -90,7 +90,7 @@ export default function Page() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Reads up to 40 pages from the same documentation path. No account needed.
+            Reads linked pages in the same documentation section. No account needed.
           </p>
         </form>
 
@@ -110,7 +110,7 @@ export default function Page() {
                 <h2 className="font-medium">Your llms.txt</h2>
                 <p className="text-xs text-muted-foreground">
                   Indexed {result.count} {result.count === 1 ? "page" : "pages"}
-                  {result.limited ? " · reached the 40-page limit" : ""}
+                  {result.failed ? ` · ${result.failed} could not be read` : ""}
                 </p>
               </div>
               <Button type="button" variant="outline" onClick={copy}>
