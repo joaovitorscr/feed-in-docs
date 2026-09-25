@@ -41,7 +41,12 @@ async function assertPublicUrl(url: URL) {
   if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) {
     throw new Error("Enter a public documentation URL.");
   }
-  const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true });
+  let addresses: Array<{ address: string }>;
+  try {
+    addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true });
+  } catch {
+    throw new Error("Could not find this website. Check the URL and try again.");
+  }
   if (!addresses.length || addresses.some(({ address }) => isPrivateIp(address))) {
     throw new Error("Enter a public documentation URL.");
   }
