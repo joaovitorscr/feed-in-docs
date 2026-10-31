@@ -1,4 +1,5 @@
 import { Geist_Mono, Onest } from "next/font/google";
+import dynamic from "next/dynamic";
 import type { Metadata, Viewport } from "next";
 
 import "./globals.css";
@@ -7,6 +8,12 @@ import { Toaster } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SITE_URL } from "@/lib/site";
 import { cn } from "@/lib/utils";
+
+// A static import would ship the fixtures in a production chunk even though it never renders.
+const DataToggle =
+  process.env.NODE_ENV === "development"
+    ? dynamic(() => import("@/components/dev/data-toggle").then((module) => module.DataToggle))
+    : null;
 
 const TITLE = "Feed in Docs — llms.txt generator";
 const DESCRIPTION =
@@ -97,6 +104,7 @@ export default function RootLayout({
         <ThemeProvider>
           <TooltipProvider>
             <Toaster>{children}</Toaster>
+            {DataToggle && <DataToggle />}
           </TooltipProvider>
         </ThemeProvider>
       </body>
