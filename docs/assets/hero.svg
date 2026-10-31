@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="Feed in Docs: a line sweeps across a documentation page, turning the rendered page into llms.txt plain text">
+<defs>
+<clipPath id="frame"><rect width="1280" height="640" rx="24"/></clipPath>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0a0a0a"/><stop offset="1" stop-color="#171717"/></linearGradient>
+<pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#fff" opacity="0.06"/></pattern>
+<filter id="blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="22"/></filter>
+<filter id="glow" filterUnits="userSpaceOnUse" x="0" y="0" width="1280" height="640"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<clipPath id="win"><rect x="592" y="84" width="760" height="472" rx="14"/></clipPath>
+<linearGradient id="beam" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#34d399" stop-opacity="0"/><stop offset="1" stop-color="#34d399" stop-opacity="0.28"/></linearGradient>
+</defs>
+<g clip-path="url(#frame)">
+<rect width="1280" height="640" fill="url(#bg)"/><rect width="1280" height="640" fill="url(#dots)"/>
+<text x="72.0" y="268.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="72" fill="#fafafa" font-weight="800" letter-spacing="-2">Feed in Docs</text>
+<text x="74.0" y="322.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="21.6" fill="#a3a3a3">Paste a documentation URL, get an llms.txt</text>
+<text x="74.0" y="352.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="21.6" fill="#a3a3a3">index you can hand to your coding agent.</text>
+<ellipse cx="960" cy="566" rx="340" ry="30" fill="#000" opacity="0.6" filter="url(#blur)"/>
+<rect x="592" y="84" width="760" height="472" rx="14" fill="#181818"/>
+<g clip-path="url(#win)">
+<rect x="592" y="84" width="760" height="40" fill="#202020"/>
+<circle cx="614" cy="104" r="5" fill="#525252"/>
+<circle cx="630" cy="104" r="5" fill="#404040"/>
+<circle cx="646" cy="104" r="5" fill="#333"/>
+<rect x="666" y="95" width="330" height="18" rx="9" fill="#141414"/>
+<text x="680.0" y="108.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10.5" fill="#737373">acme.dev/docs</text>
+<rect x="872" y="84" width="480" height="472" fill="#0c0c0c"/>
+<line x1="724" y1="124" x2="724" y2="556" stroke="#2e2e2e"/>
+<rect x="612" y="150" width="70" height="7" rx="3.5" fill="#3f3f3f"/>
+<rect x="612" y="176" width="92" height="7" rx="3.5" fill="#a3a3a3"/>
+<rect x="612" y="202" width="60" height="7" rx="3.5" fill="#3f3f3f"/>
+<rect x="612" y="228" width="84" height="7" rx="3.5" fill="#3f3f3f"/>
+<rect x="612" y="254" width="76" height="7" rx="3.5" fill="#3f3f3f"/>
+<rect x="612" y="280" width="54" height="7" rx="3.5" fill="#3f3f3f"/>
+<rect x="612" y="306" width="88" height="7" rx="3.5" fill="#3f3f3f"/>
+<rect x="612" y="332" width="66" height="7" rx="3.5" fill="#3f3f3f"/>
+<rect x="746" y="148" width="118" height="20" rx="4" fill="#d4d4d4"/>
+<rect x="746" y="184" width="126" height="6" rx="3" fill="#4a4a4a"/>
+<rect x="746" y="199" width="126" height="6" rx="3" fill="#4a4a4a"/>
+<rect x="746" y="214" width="91" height="6" rx="3" fill="#4a4a4a"/>
+<rect x="746" y="244" width="126" height="76" rx="8" fill="#242424" stroke="#333"/>
+<rect x="758" y="258" width="58" height="5" rx="2.5" fill="#52a98b"/>
+<rect x="758" y="274" width="77" height="5" rx="2.5" fill="#52a98b"/>
+<rect x="758" y="290" width="48" height="5" rx="2.5" fill="#52a98b"/>
+<rect x="746" y="338" width="126" height="6" rx="3" fill="#4a4a4a"/>
+<rect x="746" y="353" width="126" height="6" rx="3" fill="#4a4a4a"/>
+<rect x="746" y="368" width="113" height="6" rx="3" fill="#4a4a4a"/>
+<rect x="746" y="383" width="76" height="6" rx="3" fill="#4a4a4a"/>
+<rect x="746" y="416" width="84" height="26" rx="7" fill="#fafafa"/>
+<text x="896.0" y="120.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="15" fill="#fafafa" font-weight="700"># Acme</text>
+<text x="896.0" y="148.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#a3a3a3">> Build and deploy Acme apps.</text>
+<text x="896.0" y="184.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12.5" fill="#fafafa" font-weight="700">## Documentation</text>
+<text x="896.0" y="216.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">- </text><text x="911.0" y="216.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#34d399">[Introduction]</text><text x="1012.5" y="216.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">(/introduction.md)</text>
+<text x="896.0" y="246.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">- </text><text x="911.0" y="246.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#34d399">[Install]</text><text x="976.2" y="246.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">(/install.md)</text>
+<text x="896.0" y="276.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">- </text><text x="911.0" y="276.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#34d399">[Configuration]</text><text x="1019.8" y="276.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">(/configuration.md)</text>
+<text x="896.0" y="306.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">- </text><text x="911.0" y="306.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#34d399">[Routing]</text><text x="976.2" y="306.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">(/routing.md)</text>
+<text x="896.0" y="336.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">- </text><text x="911.0" y="336.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#34d399">[Data fetching]</text><text x="1019.8" y="336.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">(/data-fetching.md)</text>
+<text x="896.0" y="366.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">- </text><text x="911.0" y="366.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#34d399">[Caching]</text><text x="976.2" y="366.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">(/caching.md)</text>
+<text x="896.0" y="396.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">- </text><text x="911.0" y="396.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#34d399">[Deploy]</text><text x="969.0" y="396.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">(/deploy.md)</text>
+<text x="896.0" y="426.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">- </text><text x="911.0" y="426.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#34d399">[Upgrading]</text><text x="990.8" y="426.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">(/upgrading.md)</text>
+<text x="896.0" y="456.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">- </text><text x="911.0" y="456.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#34d399">[Reference]</text><text x="990.8" y="456.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">(/reference.md)</text>
+<text x="896.0" y="486.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">- </text><text x="911.0" y="486.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#34d399">[Changelog]</text><text x="990.8" y="486.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">(/changelog.md)</text>
+<text x="896.0" y="516.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">- </text><text x="911.0" y="516.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#34d399">[Testing]</text><text x="976.2" y="516.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#737373">(/testing.md)</text>
+<rect x="752" y="84" width="120" height="472" fill="url(#beam)"/>
+</g>
+<rect x="592" y="84" width="760" height="472" rx="14" fill="none" stroke="#404040"/>
+<line x1="872" y1="44" x2="872" y2="596" stroke="#34d399" stroke-width="2.5" filter="url(#glow)"/>
+<circle cx="872" cy="44" r="5" fill="#34d399" filter="url(#glow)"/>
+<circle cx="872" cy="596" r="5" fill="#34d399" filter="url(#glow)"/>
+</g></svg>
