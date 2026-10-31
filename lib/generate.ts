@@ -256,5 +256,6 @@ export async function generateLlmsTxt(input: string) {
     text: lines.join("\n").trim() + "\n",
     count: pages.length,
     failed,
+    source: start.href,
   };
 }

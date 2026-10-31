@@ -1,4 +1,5 @@
 import { generateLlmsTxt } from "@/lib/generate";
+import { saveLlmsTxt } from "@/lib/links";
 
 export const runtime = "nodejs";
 
@@ -13,7 +14,10 @@ export async function POST(request: Request) {
     return Response.json({ error: "Enter a valid documentation URL." }, { status: 400 });
   }
   try {
-    return Response.json(await generateLlmsTxt(url));
+    const { source, ...result } = await generateLlmsTxt(url);
+    const id = await saveLlmsTxt(result.text, source);
+    const link = id ? `${new URL(request.url).origin}/l/${id}/llms.txt` : null;
+    return Response.json({ ...result, link });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Could not read this documentation website.";

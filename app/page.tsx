@@ -9,6 +9,7 @@ import {
   Clipboard,
   Download,
   FileText,
+  Link2,
   RotateCcw,
   TriangleAlert,
 } from "lucide-react";
@@ -20,8 +21,9 @@ import { ThemeToggle } from "@/components/theme-toggle";
 
 gsap.registerPlugin(useGSAP);
 
-type Result = { text: string; count: number; failed: number };
+type Result = { text: string; count: number; failed: number; link: string | null };
 type Phase = "idle" | "loading" | "result";
+type CopyTarget = "link" | "text";
 
 const EXAMPLES = [
   { label: "Next.js", url: "https://nextjs.org/docs" },
@@ -50,7 +52,7 @@ export default function Page() {
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
   const [loadingUrl, setLoadingUrl] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<CopyTarget | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<HTMLDivElement>(null);
 
@@ -94,7 +96,7 @@ export default function Page() {
     event.preventDefault();
     if (phase !== "idle") return;
     setError("");
-    setCopied(false);
+    setCopied(null);
     setLoadingUrl(url);
     const request = fetch("/api/generate", {
       method: "POST",
@@ -121,17 +123,18 @@ export default function Page() {
     await leaveStage();
     setResult(null);
     setError("");
-    setCopied(false);
+    setCopied(null);
     setPhase("idle");
   }
 
-  async function copy() {
-    if (!result) return;
+  async function copy(target: CopyTarget) {
+    const value = target === "link" ? result?.link : result?.text;
+    if (!value) return;
     try {
-      await navigator.clipboard.writeText(result.text);
+      await navigator.clipboard.writeText(value);
     } catch {
       const helper = document.createElement("textarea");
-      helper.value = result.text;
+      helper.value = value;
       helper.style.position = "fixed";
       helper.style.opacity = "0";
       document.body.appendChild(helper);
@@ -139,8 +142,8 @@ export default function Page() {
       document.execCommand("copy");
       helper.remove();
     }
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2000);
+    setCopied(target);
+    window.setTimeout(() => setCopied(null), 2000);
   }
 
   function download() {
@@ -435,8 +438,8 @@ function ResultStage({
 }: {
   result: Result;
   sourceUrl: string;
-  copied: boolean;
-  onCopy: () => void;
+  copied: CopyTarget | null;
+  onCopy: (target: CopyTarget) => void;
   onDownload: () => void;
   onReset: () => void;
 }) {
@@ -515,6 +518,30 @@ function ResultStage({
         </div>
       </div>
 
+      {result.link ? (
+        <div data-entrance className="mt-5 flex flex-col gap-3 sm:flex-row">
+          <Input
+            readOnly
+            value={result.link}
+            aria-label="Link to this llms.txt"
+            onFocus={(event) => event.currentTarget.select()}
+            className="h-10 flex-1 font-mono text-xs"
+          />
+          <Button type="button" onClick={() => onCopy("link")} className="h-10 px-5">
+            {copied === "link" ? (
+              <Check ref={copiedIconRef} className="size-4" />
+            ) : (
+              <Link2 className="size-4" />
+            )}
+            {copied === "link" ? "Copied" : "Copy link"}
+          </Button>
+        </div>
+      ) : (
+        <p data-entrance className="mt-5 text-xs text-muted-foreground">
+          We couldn&apos;t save a link this time. You can still copy or download the text.
+        </p>
+      )}
+
       <Textarea
         data-entrance
         readOnly
@@ -524,13 +551,18 @@ function ResultStage({
       />
 
       <div data-entrance className="mt-5 flex flex-wrap items-center gap-3">
-        <Button type="button" onClick={onCopy} className="px-5">
-          {copied ? (
+        <Button
+          type="button"
+          variant={result.link ? "outline" : "default"}
+          onClick={() => onCopy("text")}
+          className="px-5"
+        >
+          {copied === "text" ? (
             <Check ref={copiedIconRef} className="size-4" />
           ) : (
             <Clipboard className="size-4" />
           )}
-          {copied ? "Copied" : "Copy text"}
+          {copied === "text" ? "Copied" : "Copy text"}
         </Button>
         <Button type="button" variant="outline" onClick={onDownload}>
           <Download className="size-4" />
