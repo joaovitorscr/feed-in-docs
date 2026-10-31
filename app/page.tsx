@@ -1,25 +1,33 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import gsap from "gsap";
-import { useGSAP } from "@gsap/react";
 import {
   ArrowRight,
   Check,
   Clipboard,
   Download,
-  FileText,
   Link2,
   RotateCcw,
   TriangleAlert,
 } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item";
+import { Kbd } from "@/components/ui/kbd";
+import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ThemeToggle } from "@/components/theme-toggle";
-
-gsap.registerPlugin(useGSAP);
+import { cn } from "@/lib/utils";
 
 type Result = { text: string; count: number; failed: number; link: string | null };
 type Phase = "idle" | "loading" | "result";
@@ -38,6 +46,9 @@ const LOADING_MESSAGES = [
   "Composing your llms.txt",
 ];
 
+/** The API reports no progress, so the timer stops on the crawl, which takes nearly all the time. */
+const CRAWL_STEP = 1;
+
 function hostOf(url: string) {
   try {
     return new URL(url).hostname;
@@ -47,80 +58,38 @@ function hostOf(url: string) {
 }
 
 export default function Page() {
-  const [url, setUrl] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
-  const [loadingUrl, setLoadingUrl] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
   const [copied, setCopied] = useState<CopyTarget | null>(null);
-  const stageRef = useRef<HTMLDivElement | null>(null);
-  const appRef = useRef<HTMLDivElement>(null);
-
-  useGSAP(
-    () => {
-      const mm = gsap.matchMedia();
-      mm.add("(prefers-reduced-motion: no-preference)", () => {
-        gsap.from("[data-header]", {
-          y: -16,
-          autoAlpha: 0,
-          duration: 0.6,
-          ease: "power3.out",
-        });
-        gsap.from("[data-footer]", { autoAlpha: 0, duration: 0.8, delay: 0.4 });
-        gsap.to("[data-blob]", {
-          y: 36,
-          scale: 1.06,
-          duration: 11,
-          yoyo: true,
-          repeat: -1,
-          ease: "sine.inOut",
-          stagger: 2,
-        });
-      });
-    },
-    { scope: appRef },
-  );
-
-  async function leaveStage() {
-    if (!stageRef.current) return;
-    await gsap.to(stageRef.current, {
-      autoAlpha: 0,
-      y: -18,
-      scale: 0.99,
-      duration: 0.28,
-      ease: "power2.in",
-    });
-  }
 
   async function generate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (phase !== "idle") return;
+    // Read from the form, not state: browsers restore this field on refresh before React hydrates.
+    const url = String(new FormData(event.currentTarget).get("url") ?? "");
     setError("");
     setCopied(null);
-    setLoadingUrl(url);
-    const request = fetch("/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    });
-    await leaveStage();
+    setSourceUrl(url);
     setPhase("loading");
     try {
-      const response = await request;
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not generate llms.txt.");
       setResult(data);
-      await leaveStage();
       setPhase("result");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not generate llms.txt.");
-      await leaveStage();
       setPhase("idle");
     }
   }
 
-  async function reset() {
-    await leaveStage();
+  function reset() {
     setResult(null);
     setError("");
     setCopied(null);
@@ -158,191 +127,139 @@ export default function Page() {
   }
 
   return (
-    <div ref={appRef} className="relative min-h-screen">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-        <div className="fid-grid absolute inset-0" />
-        <div data-blob className="fid-blob fid-blob-lg -top-40 left-1/2 -translate-x-1/2" />
-        <div data-blob className="fid-blob fid-blob-md -left-40 top-1/2" />
-        <div data-blob className="fid-blob fid-blob-md top-1/3 -right-40" />
-      </div>
-
-      <main className="relative mx-auto flex min-h-screen w-full max-w-3xl flex-col px-5 py-6 sm:px-8 sm:py-8">
-        <header
-          data-header
-          className="flex items-center justify-between text-sm font-semibold tracking-tight"
-        >
-          <div className="flex items-center gap-2.5">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <FileText className="size-4" />
-            </span>
+    <div className="flex min-h-screen flex-col">
+      <header className="sticky top-0 z-10 bg-background/(--nav-glass) shadow-sm backdrop-blur-nav">
+        <div className="mx-auto flex h-22 w-full max-w-page items-center justify-between gap-6 px-6 md:px-16">
+          <span className="text-xl font-extrabold tracking-tight whitespace-nowrap text-brand">
             feed in docs
-          </div>
+          </span>
           <ThemeToggle />
-        </header>
+        </div>
+      </header>
 
-        <section className="flex flex-1 flex-col justify-center py-16">
-          {phase === "idle" && (
-            <div ref={stageRef}>
-              <IdleStage url={url} onUrlChange={setUrl} error={error} onSubmit={generate} />
-            </div>
+      <main className="flex w-full flex-1 flex-col justify-center px-6 py-10 md:py-16">
+        <Card variant="panel" className="mx-auto w-full max-w-page">
+          {phase === "result" && result ? (
+            <ResultStage
+              result={result}
+              sourceUrl={sourceUrl}
+              copied={copied}
+              onCopy={copy}
+              onDownload={download}
+              onReset={reset}
+            />
+          ) : phase === "idle" ? (
+            <IdleStage defaultUrl={sourceUrl} error={error} onSubmit={generate} />
+          ) : (
+            <LoadingStage url={sourceUrl} />
           )}
-          {phase === "loading" && (
-            <div ref={stageRef}>
-              <LoadingStage url={loadingUrl} />
-            </div>
-          )}
-          {phase === "result" && result && (
-            <div ref={stageRef}>
-              <ResultStage
-                result={result}
-                sourceUrl={loadingUrl}
-                copied={copied}
-                onCopy={copy}
-                onDownload={download}
-                onReset={reset}
-              />
-            </div>
-          )}
-        </section>
-
-        <footer data-footer className="border-t py-5 text-xs text-muted-foreground">
-          A small tool for making documentation easier to find. Press{" "}
-          <kbd className="rounded border bg-muted px-1 font-mono">d</kbd> to toggle the theme.
-        </footer>
+        </Card>
       </main>
+
+      <footer className="mx-auto flex w-full max-w-page flex-col gap-1 px-6 pb-8 type-caption text-muted-foreground sm:flex-row sm:items-center sm:justify-between md:px-16">
+        <p>A small tool for making documentation easier to find.</p>
+        <p>
+          Press <Kbd>d</Kbd> to toggle the theme.
+        </p>
+      </footer>
     </div>
   );
 }
 
 function IdleStage({
-  url,
-  onUrlChange,
+  defaultUrl,
   error,
   onSubmit,
 }: {
-  url: string;
-  onUrlChange: (value: string) => void;
+  defaultUrl: string;
   error: string;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
-  const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useGSAP(
-    () => {
-      const mm = gsap.matchMedia();
-      mm.add("(prefers-reduced-motion: no-preference)", () => {
-        gsap.from("[data-entrance]", {
-          y: 26,
-          autoAlpha: 0,
-          duration: 0.7,
-          stagger: 0.09,
-          ease: "power3.out",
-        });
-        const alert = rootRef.current?.querySelector("[data-alert]");
-        if (alert) {
-          gsap.fromTo(
-            alert,
-            { autoAlpha: 0, y: 8 },
-            { autoAlpha: 1, y: 0, duration: 0.35, ease: "power2.out", delay: 0.25 },
-          );
-          gsap.to(alert, {
-            keyframes: { x: [0, -7, 7, -4, 4, 0] },
-            duration: 0.5,
-            ease: "power1.inOut",
-            delay: 0.3,
-          });
-        }
-      });
-    },
-    { scope: rootRef },
-  );
-
   function pickExample(example: string) {
-    onUrlChange(example);
-    inputRef.current?.focus();
+    if (!inputRef.current) return;
+    inputRef.current.value = example;
+    inputRef.current.focus();
   }
 
   return (
-    <div ref={rootRef} className="max-w-2xl">
-      <p
-        data-entrance
-        className="mb-5 inline-flex items-center gap-2 rounded-full border bg-card/60 px-3 py-1 text-xs font-medium text-muted-foreground backdrop-blur"
-      >
-        <span className="size-1.5 rounded-full bg-emerald-500" />
-        llms.txt index generator
-      </p>
-      <h1 data-entrance className="text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
-        Docs in.{" "}
-        <span className="bg-gradient-to-b from-foreground to-muted-foreground bg-clip-text text-transparent">
-          llms.txt
-        </span>{" "}
-        out.
-      </h1>
-      <p data-entrance className="mt-5 max-w-xl text-base leading-7 text-muted-foreground">
-        Paste a documentation URL. We&apos;ll crawl the site, collect every page, and compose a
-        concise index you can paste straight into your agent&apos;s context.
-      </p>
+    <CardContent className="mx-auto flex w-full max-w-3xl flex-col items-center gap-8 text-center motion-safe:rise">
+      <div className="flex flex-col items-center gap-4">
+        <h1 className="type-display text-balance">
+          Docs in. <br />
+          llms.txt out.
+        </h1>
+        <p className="max-w-xl type-body-lg text-muted-foreground">
+          Paste a documentation URL. We&apos;ll crawl the site, collect every page, and compose a
+          concise index you can paste straight into your agent&apos;s context.
+        </p>
+      </div>
 
-      <form data-entrance onSubmit={onSubmit} className="mt-9 space-y-3">
-        <Label htmlFor="docs-url">Documentation URL</Label>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <Input
-            ref={inputRef}
-            id="docs-url"
-            type="url"
-            required
-            placeholder="https://example.com/docs"
-            value={url}
-            onChange={(event) => onUrlChange(event.target.value)}
-            className="h-12 flex-1 text-base"
-            autoComplete="url"
-          />
-          <Button type="submit" className="h-12 px-6 text-base">
-            Generate llms.txt
-            <ArrowRight className="size-4 transition-transform group-hover/button:translate-x-0.5" />
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-muted-foreground">
-          <span>No page cap, no account needed. Try:</span>
-          {EXAMPLES.map((example) => (
-            <button
-              key={example.url}
-              type="button"
-              onClick={() => pickExample(example.url)}
-              className="rounded-full border bg-card/60 px-2.5 py-1 transition-colors hover:border-ring hover:bg-muted"
-            >
-              {example.label}
-            </button>
-          ))}
-        </div>
+      <form onSubmit={onSubmit} className="w-full">
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="docs-url" className="sr-only">
+              Documentation URL
+            </FieldLabel>
+            <InputGroup className="h-16">
+              <InputGroupInput
+                ref={inputRef}
+                id="docs-url"
+                name="url"
+                type="url"
+                required
+                placeholder="https://example.com/docs"
+                defaultValue={defaultUrl}
+                autoComplete="url"
+                className="max-sm:pl-3"
+              />
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton
+                  type="submit"
+                  variant="default"
+                  size="sm"
+                  className="max-sm:size-12 max-sm:px-0!"
+                >
+                  <span className="sr-only sm:not-sr-only">Generate llms.txt</span>
+                  <ArrowRight data-icon="inline-end" />
+                </InputGroupButton>
+              </InputGroupAddon>
+            </InputGroup>
+            <div className="flex flex-wrap items-center justify-center gap-2 text-muted-foreground">
+              <span>No page cap, no account needed. Try:</span>
+              {EXAMPLES.map((example) => (
+                <Button
+                  key={example.url}
+                  type="button"
+                  variant="secondary"
+                  size="xs"
+                  onClick={() => pickExample(example.url)}
+                >
+                  {example.label}
+                </Button>
+              ))}
+            </div>
+          </Field>
+        </FieldGroup>
       </form>
 
       {error && (
-        <p
-          data-alert
-          role="alert"
-          className="mt-6 flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
-        >
-          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-          {error}
-        </p>
+        <Alert variant="destructive">
+          <TriangleAlert />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
-    </div>
+    </CardContent>
   );
 }
 
 function LoadingStage({ url }: { url: string }) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const messageRef = useRef<HTMLSpanElement>(null);
   const elapsedRef = useRef<HTMLSpanElement>(null);
-  const [messageIndex, setMessageIndex] = useState(0);
+  const [step, setStep] = useState(0);
 
   useEffect(() => {
-    const id = window.setInterval(
-      () => setMessageIndex((index) => (index + 1) % LOADING_MESSAGES.length),
-      2600,
-    );
+    const id = window.setInterval(() => setStep((index) => Math.min(index + 1, CRAWL_STEP)), 2600);
     return () => window.clearInterval(id);
   }, []);
 
@@ -356,75 +273,50 @@ function LoadingStage({ url }: { url: string }) {
     return () => window.clearInterval(id);
   }, []);
 
-  useGSAP(
-    () => {
-      const mm = gsap.matchMedia();
-      mm.add("(prefers-reduced-motion: no-preference)", () => {
-        gsap.from("[data-entrance]", {
-          y: 18,
-          autoAlpha: 0,
-          duration: 0.5,
-          stagger: 0.08,
-          ease: "power3.out",
-        });
-        gsap.to("[data-pulse]", {
-          scale: 1.1,
-          duration: 0.9,
-          yoyo: true,
-          repeat: -1,
-          ease: "sine.inOut",
-        });
-      });
-    },
-    { scope: rootRef },
-  );
-
-  useGSAP(
-    () => {
-      gsap.fromTo(
-        messageRef.current,
-        { autoAlpha: 0, y: 6 },
-        { autoAlpha: 1, y: 0, duration: 0.35, ease: "power2.out" },
-      );
-    },
-    { dependencies: [messageIndex] },
-  );
-
   return (
-    <div
-      ref={rootRef}
-      className="mx-auto max-w-xl rounded-2xl border bg-card/60 p-6 shadow-sm backdrop-blur sm:p-8"
-    >
-      <div data-entrance className="flex items-center gap-4">
-        <span
-          data-pulse
-          className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground"
-        >
-          <FileText className="size-5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h2 className="font-medium tracking-tight">Indexing {hostOf(url)}</h2>
-          <p className="truncate text-xs text-muted-foreground">{url}</p>
-        </div>
-        <span ref={elapsedRef} className="text-xs text-muted-foreground tabular-nums">
+    <CardContent className="mx-auto flex w-full max-w-2xl flex-col gap-6 motion-safe:rise">
+      <div className="flex min-w-0 flex-col gap-2 text-center">
+        <h2 className="type-headline-lg wrap-anywhere">Indexing {hostOf(url)}</h2>
+        <p className="truncate text-muted-foreground">{url}</p>
+      </div>
+
+      <ItemGroup className="gap-2">
+        {LOADING_MESSAGES.map((message, index) => {
+          const active = index === step;
+          return (
+            <Item
+              key={message}
+              role="listitem"
+              aria-current={active ? "step" : undefined}
+              className={cn(active ? "bg-background" : "opacity-30")}
+            >
+              <ItemContent>
+                <span className={cn("type-caption", active && "text-rank dark:text-brand")}>
+                  Step {index + 1}
+                </span>
+                <ItemTitle className="text-xl font-bold">{message}</ItemTitle>
+              </ItemContent>
+              {active && (
+                <ItemActions>
+                  <Spinner aria-hidden className="size-5" />
+                </ItemActions>
+              )}
+            </Item>
+          );
+        })}
+      </ItemGroup>
+
+      <p className="text-center text-muted-foreground">
+        <span ref={elapsedRef} className="tabular-nums">
           0s
-        </span>
-      </div>
-
-      <div
-        data-entrance
-        aria-hidden
-        className="relative mt-7 h-1 w-full overflow-hidden rounded-full bg-muted"
-      >
-        <div className="fid-shimmer absolute inset-y-0 w-1/3 rounded-full bg-foreground/20" />
-      </div>
-
-      <p aria-live="polite" className="mt-3 text-sm text-muted-foreground">
-        <span ref={messageRef} className="inline-block">
-          {LOADING_MESSAGES[messageIndex]}…
-        </span>
+        </span>{" "}
+        so far. Large sites can take a few minutes.
       </p>
-    </div>
+
+      <p aria-live="polite" className="sr-only">
+        {LOADING_MESSAGES[step]}
+      </p>
+    </CardContent>
   );
 }
 
@@ -443,136 +335,75 @@ function ResultStage({
   onDownload: () => void;
   onReset: () => void;
 }) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const countRef = useRef<HTMLSpanElement>(null);
-  const copiedIconRef = useRef<SVGSVGElement>(null);
-
-  useGSAP(
-    () => {
-      const mm = gsap.matchMedia();
-      mm.add("(prefers-reduced-motion: no-preference)", () => {
-        gsap.from("[data-entrance]", {
-          y: 20,
-          autoAlpha: 0,
-          duration: 0.6,
-          stagger: 0.09,
-          ease: "power3.out",
-        });
-        const counter = { n: 0 };
-        gsap.to(counter, {
-          n: result.count,
-          duration: 1,
-          ease: "power2.out",
-          onUpdate: () => {
-            if (countRef.current) {
-              countRef.current.textContent = String(Math.round(counter.n));
-            }
-          },
-        });
-      });
-      mm.add("(prefers-reduced-motion: reduce)", () => {
-        if (countRef.current) countRef.current.textContent = String(result.count);
-      });
-    },
-    { scope: rootRef },
-  );
-
-  useGSAP(
-    () => {
-      if (copied && copiedIconRef.current) {
-        gsap.fromTo(
-          copiedIconRef.current,
-          { scale: 0.4 },
-          { scale: 1, duration: 0.5, ease: "back.out(2.5)" },
-        );
-      }
-    },
-    { dependencies: [copied], scope: rootRef },
-  );
-
   return (
-    <div
-      ref={rootRef}
+    <CardContent
       role="status"
       aria-label="Generated llms.txt"
-      className="rounded-2xl border bg-card/60 p-5 shadow-sm backdrop-blur sm:p-7"
+      className="flex w-full flex-col gap-6 motion-safe:rise"
     >
-      <div data-entrance className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg font-semibold tracking-tight">Your llms.txt is ready</h2>
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">Indexed from {sourceUrl}</p>
+      <div className="flex min-w-0 flex-col items-center gap-3 text-center">
+        <h2 className="type-headline-lg">Your llms.txt is ready</h2>
+        <div className="flex flex-wrap justify-center gap-2">
+          <Badge variant="brand">
+            {result.count} {result.count === 1 ? "page" : "pages"} indexed
+          </Badge>
+          {result.failed > 0 && <Badge variant="secondary">{result.failed} unreadable</Badge>}
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
-          <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/60 px-3 py-1">
-            <span ref={countRef} className="tabular-nums font-semibold">
-              0
-            </span>
-            pages
-          </span>
-          {result.failed > 0 && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/60 px-3 py-1 text-muted-foreground">
-              <TriangleAlert className="size-3.5" />
-              {result.failed} unreadable
-            </span>
-          )}
-        </div>
+        <p className="w-full truncate text-muted-foreground">Indexed from {sourceUrl}</p>
       </div>
 
-      {result.link ? (
-        <div data-entrance className="mt-5 flex flex-col gap-3 sm:flex-row">
+      <Textarea
+        readOnly
+        value={result.text}
+        aria-label="llms.txt content"
+        className="max-h-96 min-h-72 resize-y font-mono text-xs leading-6"
+      />
+
+      <div className="flex flex-wrap items-center gap-3">
+        {result.link ? (
           <Input
             readOnly
             value={result.link}
             aria-label="Link to this llms.txt"
             onFocus={(event) => event.currentTarget.select()}
-            className="h-10 flex-1 font-mono text-xs"
+            className="basis-full font-mono text-xs lg:flex-1 lg:basis-0"
           />
-          <Button type="button" onClick={() => onCopy("link")} className="h-10 px-5">
+        ) : (
+          <p className="basis-full text-muted-foreground lg:flex-1 lg:basis-0">
+            We couldn&apos;t save a link this time. You can still copy or download the text.
+          </p>
+        )}
+        {result.link && (
+          <Button type="button" onClick={() => onCopy("link")}>
             {copied === "link" ? (
-              <Check ref={copiedIconRef} className="size-4" />
+              <Check data-icon="inline-start" />
             ) : (
-              <Link2 className="size-4" />
+              <Link2 data-icon="inline-start" />
             )}
             {copied === "link" ? "Copied" : "Copy link"}
           </Button>
-        </div>
-      ) : (
-        <p data-entrance className="mt-5 text-xs text-muted-foreground">
-          We couldn&apos;t save a link this time. You can still copy or download the text.
-        </p>
-      )}
-
-      <Textarea
-        data-entrance
-        readOnly
-        value={result.text}
-        aria-label="llms.txt content"
-        className="mt-5 max-h-96 min-h-72 resize-y font-mono text-xs leading-6"
-      />
-
-      <div data-entrance className="mt-5 flex flex-wrap items-center gap-3">
+        )}
         <Button
           type="button"
           variant={result.link ? "outline" : "default"}
           onClick={() => onCopy("text")}
-          className="px-5"
         >
           {copied === "text" ? (
-            <Check ref={copiedIconRef} className="size-4" />
+            <Check data-icon="inline-start" />
           ) : (
-            <Clipboard className="size-4" />
+            <Clipboard data-icon="inline-start" />
           )}
           {copied === "text" ? "Copied" : "Copy text"}
         </Button>
         <Button type="button" variant="outline" onClick={onDownload}>
-          <Download className="size-4" />
+          <Download data-icon="inline-start" />
           Download
         </Button>
-        <Button type="button" variant="ghost" onClick={onReset} className="ml-auto">
-          <RotateCcw className="size-4" />
+        <Button type="button" variant="ghost" onClick={onReset}>
+          <RotateCcw data-icon="inline-start" />
           Start over
         </Button>
       </div>
-    </div>
+    </CardContent>
   );
 }

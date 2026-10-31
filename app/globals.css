@@ -287,45 +287,14 @@
   transform: translate(-4%, -50%) rotate(calc(var(--fan-tilt) * 1.4));
 }
 
-.fid-grid {
-  background-image: radial-gradient(circle, var(--border) 1px, transparent 1.5px);
-  background-size: 24px 24px;
-  mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, black 35%, transparent 80%);
-  -webkit-mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, black 35%, transparent 80%);
-}
-
-.fid-blob {
-  position: absolute;
-  border-radius: 9999px;
-  background: color-mix(in oklab, var(--primary) 4%, transparent);
-  filter: blur(100px);
-}
-
-.fid-blob-lg {
-  width: 34rem;
-  height: 34rem;
-}
-
-.fid-blob-md {
-  width: 24rem;
-  height: 24rem;
-}
-
-@keyframes fid-shimmer {
+/* Hero copy rises 24px on load. */
+@keyframes rise {
   from {
-    transform: translateX(-120%);
-  }
-  to {
-    transform: translateX(420%);
+    opacity: 0;
+    transform: translateY(24px);
   }
 }
 
-.fid-shimmer {
-  animation: fid-shimmer 1.4s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fid-shimmer {
-    animation: none;
-  }
+@utility rise {
+  animation: rise 300ms var(--ease-brand) backwards;
 }

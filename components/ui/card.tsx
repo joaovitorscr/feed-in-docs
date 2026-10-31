@@ -8,6 +8,7 @@ const cardVariants = cva(
     variants: {
       variant: {
         default: "bg-card text-card-foreground",
+        panel: "rounded-panel bg-card text-card-foreground sm:[--card-spacing:--spacing(12)]",
         brand:
           "bg-brand text-brand-foreground [--muted-foreground:color-mix(in_srgb,var(--brand-foreground)_90%,transparent)]",
         navy: "dark bg-navy text-foreground",
