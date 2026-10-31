@@ -9,6 +9,7 @@ import {
   Link2,
   RotateCcw,
   TriangleAlert,
+  type LucideIcon,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +33,7 @@ import { cn } from "@/lib/utils";
 type Result = { text: string; count: number; failed: number; link: string | null };
 type Phase = "idle" | "loading" | "result";
 type CopyTarget = "link" | "text";
+type CopyFeedback = { target: CopyTarget; ok: boolean };
 
 const EXAMPLES = [
   { label: "Next.js", url: "https://nextjs.org/docs" },
@@ -49,11 +51,65 @@ const LOADING_MESSAGES = [
 /** The API reports no progress, so the timer stops on the crawl, which takes nearly all the time. */
 const CRAWL_STEP = 1;
 
-function hostOf(url: string) {
+/** Kept visible by MiddleTruncate: the end of a URL is what tells two docs sections apart. */
+const URL_TAIL_LENGTH = 16;
+
+/** Lets labels wrap inside the button when a large text setting outgrows the column. */
+const ACTION_CLASS = "h-auto min-h-12 whitespace-normal";
+
+const numberFormat = new Intl.NumberFormat();
+
+function formatElapsed(totalSeconds: number) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor(totalSeconds / 60) % 60;
+  const seconds = totalSeconds % 60;
+  if (hours) return `${hours}h ${minutes}m`;
+  return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+/** Vercel's own failures are plain text, so these statuses have no JSON error to show. */
+function statusMessage(status: number) {
+  if (status === 413) return "This site's index is too large. Try a narrower URL.";
+  if (status === 504) return "This site took too long to crawl. Try a narrower URL.";
+  return "Could not generate llms.txt. Try again in a moment.";
+}
+
+async function requestLlmsTxt(url: string): Promise<Result> {
+  let response: Response;
   try {
-    return new URL(url).hostname;
+    response = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
   } catch {
-    return url;
+    throw new Error("Could not reach Feed in Docs. Check your connection and try again.");
+  }
+  const body = await response.text();
+  let data: (Result & { error?: string }) | null = null;
+  try {
+    data = JSON.parse(body);
+  } catch {
+    /* Reported below from the status code. */
+  }
+  if (!response.ok || !data) throw new Error(data?.error || statusMessage(response.status));
+  return data;
+}
+
+async function writeToClipboard(value: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    const helper = document.createElement("textarea");
+    helper.value = value;
+    helper.style.position = "fixed";
+    helper.style.opacity = "0";
+    document.body.appendChild(helper);
+    helper.select();
+    const copied = document.execCommand("copy");
+    helper.remove();
+    return copied;
   }
 }
 
@@ -62,7 +118,8 @@ export default function Page() {
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
-  const [copied, setCopied] = useState<CopyTarget | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<CopyFeedback | null>(null);
+  const copyTimer = useRef<number>(undefined);
 
   async function generate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -70,18 +127,11 @@ export default function Page() {
     // Read from the form, not state: browsers restore this field on refresh before React hydrates.
     const url = String(new FormData(event.currentTarget).get("url") ?? "");
     setError("");
-    setCopied(null);
+    setCopyFeedback(null);
     setSourceUrl(url);
     setPhase("loading");
     try {
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not generate llms.txt.");
-      setResult(data);
+      setResult(await requestLlmsTxt(url));
       setPhase("result");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not generate llms.txt.");
@@ -92,27 +142,17 @@ export default function Page() {
   function reset() {
     setResult(null);
     setError("");
-    setCopied(null);
+    setCopyFeedback(null);
     setPhase("idle");
   }
 
   async function copy(target: CopyTarget) {
     const value = target === "link" ? result?.link : result?.text;
     if (!value) return;
-    try {
-      await navigator.clipboard.writeText(value);
-    } catch {
-      const helper = document.createElement("textarea");
-      helper.value = value;
-      helper.style.position = "fixed";
-      helper.style.opacity = "0";
-      document.body.appendChild(helper);
-      helper.select();
-      document.execCommand("copy");
-      helper.remove();
-    }
-    setCopied(target);
-    window.setTimeout(() => setCopied(null), 2000);
+    const ok = await writeToClipboard(value);
+    window.clearTimeout(copyTimer.current);
+    setCopyFeedback({ target, ok });
+    copyTimer.current = window.setTimeout(() => setCopyFeedback(null), 2000);
   }
 
   function download() {
@@ -130,7 +170,7 @@ export default function Page() {
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 bg-background/(--nav-glass) shadow-sm backdrop-blur-nav">
         <div className="mx-auto flex h-22 w-full max-w-page items-center justify-between gap-6 px-6 md:px-16">
-          <span className="text-xl font-extrabold tracking-tight whitespace-nowrap text-brand">
+          <span className="min-w-0 text-xl font-extrabold tracking-tight text-brand">
             feed in docs
           </span>
           <ThemeToggle />
@@ -143,7 +183,7 @@ export default function Page() {
             <ResultStage
               result={result}
               sourceUrl={sourceUrl}
-              copied={copied}
+              copyFeedback={copyFeedback}
               onCopy={copy}
               onDownload={download}
               onReset={reset}
@@ -185,8 +225,8 @@ function IdleStage({
 
   return (
     <CardContent className="mx-auto flex w-full max-w-3xl flex-col items-center gap-8 text-center motion-safe:rise">
-      <div className="flex flex-col items-center gap-4">
-        <h1 className="type-display text-balance">
+      <div className="flex w-full flex-col items-center gap-4">
+        <h1 className="type-display text-balance wrap-anywhere">
           Docs in. <br />
           llms.txt out.
         </h1>
@@ -267,7 +307,7 @@ function LoadingStage({ url }: { url: string }) {
     const startedAt = Date.now();
     const id = window.setInterval(() => {
       if (elapsedRef.current) {
-        elapsedRef.current.textContent = `${Math.round((Date.now() - startedAt) / 1000)}s`;
+        elapsedRef.current.textContent = formatElapsed(Math.round((Date.now() - startedAt) / 1000));
       }
     }, 1000);
     return () => window.clearInterval(id);
@@ -276,8 +316,8 @@ function LoadingStage({ url }: { url: string }) {
   return (
     <CardContent className="mx-auto flex w-full max-w-2xl flex-col gap-6 motion-safe:rise">
       <div className="flex min-w-0 flex-col gap-2 text-center">
-        <h2 className="type-headline-lg wrap-anywhere">Indexing {hostOf(url)}</h2>
-        <p className="truncate text-muted-foreground">{url}</p>
+        <h2 className="type-headline-lg wrap-anywhere">Indexing your docs</h2>
+        <MiddleTruncate text={url} className="text-muted-foreground" />
       </div>
 
       <ItemGroup className="gap-2">
@@ -294,7 +334,7 @@ function LoadingStage({ url }: { url: string }) {
                 <span className={cn("type-caption", active && "text-rank dark:text-brand")}>
                   Step {index + 1}
                 </span>
-                <ItemTitle className="text-xl font-bold">{message}</ItemTitle>
+                <ItemTitle className="text-xl font-bold wrap-anywhere">{message}</ItemTitle>
               </ItemContent>
               {active && (
                 <ItemActions>
@@ -320,17 +360,70 @@ function LoadingStage({ url }: { url: string }) {
   );
 }
 
+function MiddleTruncate({
+  text,
+  prefix = "",
+  className,
+}: {
+  text: string;
+  prefix?: string;
+  className?: string;
+}) {
+  const characters = Array.from(text);
+  const start = characters.slice(0, -URL_TAIL_LENGTH).join("");
+  const end = characters.slice(-URL_TAIL_LENGTH).join("");
+  return (
+    <p title={text} className={cn("flex w-full min-w-0 justify-center", className)}>
+      <span className="truncate">
+        {prefix}
+        {start}
+      </span>
+      <span className="shrink-0">{end}</span>
+    </p>
+  );
+}
+
+function CopyButton({
+  target,
+  label,
+  icon: Icon,
+  variant,
+  feedback,
+  onCopy,
+}: {
+  target: CopyTarget;
+  label: string;
+  icon: LucideIcon;
+  variant: "default" | "outline";
+  feedback: CopyFeedback | null;
+  onCopy: (target: CopyTarget) => void;
+}) {
+  const active = feedback?.target === target ? feedback : null;
+  const StateIcon = active ? (active.ok ? Check : TriangleAlert) : Icon;
+  return (
+    <Button
+      type="button"
+      variant={variant}
+      className={cn(ACTION_CLASS, "lg:min-w-42")}
+      onClick={() => onCopy(target)}
+    >
+      <StateIcon data-icon="inline-start" />
+      {active ? (active.ok ? "Copied" : "Copy failed") : label}
+    </Button>
+  );
+}
+
 function ResultStage({
   result,
   sourceUrl,
-  copied,
+  copyFeedback,
   onCopy,
   onDownload,
   onReset,
 }: {
   result: Result;
   sourceUrl: string;
-  copied: CopyTarget | null;
+  copyFeedback: CopyFeedback | null;
   onCopy: (target: CopyTarget) => void;
   onDownload: () => void;
   onReset: () => void;
@@ -342,14 +435,16 @@ function ResultStage({
       className="flex w-full flex-col gap-6 motion-safe:rise"
     >
       <div className="flex min-w-0 flex-col items-center gap-3 text-center">
-        <h2 className="type-headline-lg">Your llms.txt is ready</h2>
+        <h2 className="type-headline-lg wrap-anywhere">Your llms.txt is ready</h2>
         <div className="flex flex-wrap justify-center gap-2">
           <Badge variant="brand">
-            {result.count} {result.count === 1 ? "page" : "pages"} indexed
+            {numberFormat.format(result.count)} {result.count === 1 ? "page" : "pages"} indexed
           </Badge>
-          {result.failed > 0 && <Badge variant="secondary">{result.failed} unreadable</Badge>}
+          {result.failed > 0 && (
+            <Badge variant="secondary">{numberFormat.format(result.failed)} unreadable</Badge>
+          )}
         </div>
-        <p className="w-full truncate text-muted-foreground">Indexed from {sourceUrl}</p>
+        <MiddleTruncate text={sourceUrl} prefix="Indexed from " className="text-muted-foreground" />
       </div>
 
       <Textarea
@@ -359,47 +454,48 @@ function ResultStage({
         className="max-h-96 min-h-72 resize-y font-mono text-xs leading-6"
       />
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
         {result.link ? (
           <Input
             readOnly
             value={result.link}
             aria-label="Link to this llms.txt"
             onFocus={(event) => event.currentTarget.select()}
-            className="basis-full font-mono text-xs lg:flex-1 lg:basis-0"
+            className="col-span-full font-mono text-xs lg:flex-1"
           />
         ) : (
-          <p className="basis-full text-muted-foreground lg:flex-1 lg:basis-0">
+          <p className="col-span-full text-muted-foreground lg:flex-1">
             We couldn&apos;t save a link this time. You can still copy or download the text.
           </p>
         )}
         {result.link && (
-          <Button type="button" onClick={() => onCopy("link")}>
-            {copied === "link" ? (
-              <Check data-icon="inline-start" />
-            ) : (
-              <Link2 data-icon="inline-start" />
-            )}
-            {copied === "link" ? "Copied" : "Copy link"}
-          </Button>
+          <CopyButton
+            target="link"
+            label="Copy link"
+            icon={Link2}
+            variant="default"
+            feedback={copyFeedback}
+            onCopy={onCopy}
+          />
         )}
-        <Button
-          type="button"
+        <CopyButton
+          target="text"
+          label="Copy text"
+          icon={Clipboard}
           variant={result.link ? "outline" : "default"}
-          onClick={() => onCopy("text")}
-        >
-          {copied === "text" ? (
-            <Check data-icon="inline-start" />
-          ) : (
-            <Clipboard data-icon="inline-start" />
-          )}
-          {copied === "text" ? "Copied" : "Copy text"}
-        </Button>
-        <Button type="button" variant="outline" onClick={onDownload}>
+          feedback={copyFeedback}
+          onCopy={onCopy}
+        />
+        <Button type="button" variant="outline" className={ACTION_CLASS} onClick={onDownload}>
           <Download data-icon="inline-start" />
           Download
         </Button>
-        <Button type="button" variant="ghost" onClick={onReset}>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={onReset}
+          className={cn(ACTION_CLASS, !result.link && "col-span-full")}
+        >
           <RotateCcw data-icon="inline-start" />
           Start over
         </Button>

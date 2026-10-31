@@ -212,53 +212,53 @@
 
 /* Clamped so display sizes hold on mobile. Tracking in em keeps the ratio as they shrink. */
 @utility type-display {
-  font-size: clamp(39px, 3.5vw + 26px, 56px);
+  font-size: clamp(2.4375rem, 3.5vw + 1.625rem, 3.5rem);
   font-weight: 800;
   line-height: 1.2;
   letter-spacing: -0.022em;
 }
 
 @utility type-stat {
-  font-size: clamp(48px, 4vw + 32px, 64px);
+  font-size: clamp(3rem, 4vw + 2rem, 4rem);
   font-weight: 800;
   line-height: 1;
   letter-spacing: -0.022em;
 }
 
 @utility type-headline-lg {
-  font-size: clamp(31px, 2vw + 23px, 39px);
+  font-size: clamp(1.9375rem, 2vw + 1.4375rem, 2.4375rem);
   font-weight: 800;
   line-height: 1.2;
   letter-spacing: -0.022em;
 }
 
 @utility type-headline-md {
-  font-size: 25px;
+  font-size: 1.5625rem;
   font-weight: 700;
   line-height: 1.4;
   letter-spacing: -0.022em;
 }
 
 @utility type-body-lg {
-  font-size: 20px;
+  font-size: 1.25rem;
   font-weight: 400;
   line-height: 1.4;
 }
 
 @utility type-body-md {
-  font-size: 16px;
+  font-size: 1rem;
   font-weight: 400;
   line-height: 1.4;
 }
 
 @utility type-label-md {
-  font-size: 16px;
+  font-size: 1rem;
   font-weight: 600;
   line-height: 1;
 }
 
 @utility type-caption {
-  font-size: 12.8px;
+  font-size: 0.8rem;
   font-weight: 500;
   line-height: 1.4;
 }
