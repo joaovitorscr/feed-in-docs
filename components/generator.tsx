@@ -486,7 +486,7 @@ function ResultStage({
           role="region"
           aria-label="llms.txt content"
           aria-live="off"
-          className="leading-6 data-wrap:wrap-anywhere"
+          className="px-5 py-3 leading-6 data-wrap:wrap-anywhere"
         >
           {result.text}
         </CodeBlockContent>
