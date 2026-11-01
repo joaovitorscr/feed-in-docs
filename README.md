@@ -92,4 +92,4 @@ pnpm check:react-doctor
 
 CI runs `lint`, `format:check`, `typecheck`, and `check:react-doctor` on every PR. `pnpm install` also sets up a pre-push hook that runs the same four.
 
-The crawler and the `llms.txt` writer are in `lib/generate.ts`, and link storage is in `lib/links.ts`. The landing page and its metadata are in `app/page.tsx`, and the interactive tool is `components/generator.tsx`. `app/api/generate/route.ts` is the endpoint, and `app/l/[id]/llms.txt/route.ts` serves saved files.
+The crawler and the `llms.txt` writer are in `lib/generate.ts`, and link storage is in `lib/links.ts`. The landing page and its metadata are in `app/page.tsx`, the 404 page is `app/not-found.tsx`, and the interactive tool is `components/generator.tsx`. `app/api/generate/route.ts` is the endpoint, and `app/l/[id]/llms.txt/route.ts` serves saved files.
