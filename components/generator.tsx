@@ -1,9 +1,10 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   Check,
+  CircleQuestionMark,
   Clipboard,
   Download,
   Link2,
@@ -12,9 +13,10 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
+import { badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { CodeBlock, CodeBlockContent } from "@/components/ui/code-block";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -25,7 +27,7 @@ import {
 } from "@/components/ui/input-group";
 import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 type Result = { text: string; count: number; failed: number; link: string | null };
@@ -339,26 +341,67 @@ function LoadingStage({ url }: { url: string }) {
   );
 }
 
+/** Pass `href` to make the URL a link. It opens a new tab because the result only lives in state. */
 function MiddleTruncate({
   text,
-  prefix = "",
+  prefix,
+  href,
   className,
 }: {
   text: string;
   prefix?: string;
+  href?: string;
   className?: string;
 }) {
   const characters = Array.from(text);
   const start = characters.slice(0, -URL_TAIL_LENGTH).join("");
   const end = characters.slice(-URL_TAIL_LENGTH).join("");
-  return (
-    <p title={text} className={cn("flex w-full min-w-0 justify-center", className)}>
-      <span className="truncate">
-        {prefix}
-        {start}
-      </span>
+  const label = (
+    <>
+      <span className="truncate">{start}</span>
       <span className="shrink-0">{end}</span>
+    </>
+  );
+  return (
+    <p title={text} className={cn("flex w-full min-w-0 justify-center gap-1", className)}>
+      {prefix && <span className="shrink-0">{prefix}</span>}
+      {href ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="flex min-w-0 underline underline-offset-3 hover:text-foreground"
+        >
+          {label}
+        </a>
+      ) : (
+        <span className="flex min-w-0">{label}</span>
+      )}
     </p>
+  );
+}
+
+/** A result count whose tooltip says what it measures. */
+function CountBadge({
+  variant,
+  hint,
+  children,
+}: {
+  variant: "brand" | "secondary";
+  hint: string;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        aria-description={hint}
+        className={cn(badgeVariants({ variant }), "cursor-help")}
+      >
+        <CircleQuestionMark data-icon="inline-start" />
+        {children}
+      </TooltipTrigger>
+      <TooltipContent>{hint}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -416,22 +459,38 @@ function ResultStage({
       <div className="flex min-w-0 flex-col items-center gap-3 text-center">
         <h2 className="type-headline-lg wrap-anywhere">Your llms.txt is ready</h2>
         <div className="flex flex-wrap justify-center gap-2">
-          <Badge variant="brand">
+          <CountBadge variant="brand" hint="Pages we read and listed in this llms.txt.">
             {numberFormat.format(result.count)} {result.count === 1 ? "page" : "pages"} indexed
-          </Badge>
+          </CountBadge>
           {result.failed > 0 && (
-            <Badge variant="secondary">{numberFormat.format(result.failed)} unreadable</Badge>
+            <CountBadge
+              variant="secondary"
+              hint="Pages we found but couldn't read, so they're not in this llms.txt. They may be broken, blocked, too large, or too slow to load."
+            >
+              {numberFormat.format(result.failed)} unreadable
+            </CountBadge>
           )}
         </div>
-        <MiddleTruncate text={sourceUrl} prefix="Indexed from " className="text-muted-foreground" />
+        <MiddleTruncate
+          text={sourceUrl}
+          prefix="Indexed from"
+          href={sourceUrl}
+          className="text-muted-foreground"
+        />
       </div>
 
-      <Textarea
-        readOnly
-        value={result.text}
-        aria-label="llms.txt content"
-        className="max-h-96 min-h-72 resize-y font-mono text-xs leading-6"
-      />
+      <CodeBlock className="max-h-96 min-h-72 rounded-2xl bg-background text-xs dark:bg-background">
+        {/* aria-live opts out of the stage's status role, which would read the whole file aloud. */}
+        <CodeBlockContent
+          wrap
+          role="region"
+          aria-label="llms.txt content"
+          aria-live="off"
+          className="px-5 py-3 leading-6 data-wrap:wrap-anywhere"
+        >
+          {result.text}
+        </CodeBlockContent>
+      </CodeBlock>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
         {result.link ? (
