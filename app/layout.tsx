@@ -4,7 +4,6 @@ import type { Metadata, Viewport } from "next";
 
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
-import { Toaster } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SITE_DESCRIPTION, SITE_TITLE, SITE_URL } from "@/lib/site";
 import { cn } from "@/lib/utils";
@@ -40,9 +39,11 @@ const onest = Onest({
   fallback: ["system-ui", "sans-serif"],
 });
 
+// Not preloaded: mono text only appears below the fold, so it shouldn't compete with the hero.
 const fontMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
+  preload: false,
 });
 
 export default function RootLayout({
@@ -59,7 +60,7 @@ export default function RootLayout({
       <body>
         <ThemeProvider>
           <TooltipProvider>
-            <Toaster>{children}</Toaster>
+            {children}
             {DataToggle && <DataToggle />}
           </TooltipProvider>
         </ThemeProvider>
