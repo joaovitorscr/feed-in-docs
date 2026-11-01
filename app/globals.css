@@ -1,6 +1,13 @@
-@import "tailwindcss";
+/* Scans only app code. By default Tailwind also reads .agents/ and docs/, and every class-like word
+   in those files lands in the render-blocking stylesheet. */
+@import "tailwindcss" source(none);
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+
+@source "../app";
+@source "../components";
+@source "../hooks";
+@source "../lib";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -287,10 +294,11 @@
   transform: translate(-4%, -50%) rotate(calc(var(--fan-tilt) * 1.4));
 }
 
-/* Hero copy rises 24px on load. */
+/* Hero copy rises 24px on load. It starts at 0.01 because Chrome skips opacity: 0 text when timing
+   LCP, which would push the page's LCP back to the end of this animation. */
 @keyframes rise {
   from {
-    opacity: 0;
+    opacity: 0.01;
     transform: translateY(24px);
   }
 }
