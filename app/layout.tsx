@@ -1,10 +1,19 @@
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono, Onest } from "next/font/google";
+import dynamic from "next/dynamic";
 import type { Metadata, Viewport } from "next";
 
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/toast";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { SITE_URL } from "@/lib/site";
 import { cn } from "@/lib/utils";
+
+// A static import would ship the fixtures in a production chunk even though it never renders.
+const DataToggle =
+  process.env.NODE_ENV === "development"
+    ? dynamic(() => import("@/components/dev/data-toggle").then((module) => module.DataToggle))
+    : null;
 
 const TITLE = "Feed in Docs — llms.txt generator";
 const DESCRIPTION =
@@ -50,7 +59,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+    { media: "(prefers-color-scheme: dark)", color: "#091723" },
   ],
 };
 
@@ -65,7 +74,11 @@ const jsonLd = {
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
 };
 
-const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
+const onest = Onest({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  fallback: ["system-ui", "sans-serif"],
+});
 
 const fontMono = Geist_Mono({
   subsets: ["latin"],
@@ -81,14 +94,19 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("antialiased", fontMono.variable, "font-sans", geist.variable)}
+      className={cn("antialiased", fontMono.variable, "font-sans", onest.variable)}
     >
       <body>
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <TooltipProvider>
+            <Toaster>{children}</Toaster>
+            {DataToggle && <DataToggle />}
+          </TooltipProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

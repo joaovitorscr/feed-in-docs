@@ -3,5 +3,13 @@
   "jsPlugins": ["@shadcn/lint"],
   "rules": {
     "shadcn/no-arbitrary-values": "error"
-  }
+  },
+  "overrides": [
+    {
+      "files": ["components/ui/**"],
+      "rules": {
+        "shadcn/no-arbitrary-values": "off"
+      }
+    }
+  ]
 }

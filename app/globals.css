@@ -30,6 +30,7 @@
   --color-muted: var(--muted);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
+  --color-primary-hover: var(--primary-hover);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
   --color-popover-foreground: var(--popover-foreground);
@@ -38,82 +39,162 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* DESIGN.md tokens with no shadcn slot. These never flip with the scheme. */
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-ink: var(--ink);
+  --color-navy: var(--navy);
+  --color-mint: var(--mint);
+  --color-mint-2: var(--mint-2);
+  --color-sun: var(--sun);
+  --color-photo-lit: var(--photo-lit);
+  --color-photo-dark: var(--photo-dark);
+  --color-leaf: var(--leaf);
+  --color-sky: var(--sky);
+  --color-rank: var(--rank);
+
+  /* DESIGN.md radius scale, pinned to the classes base-maia uses. */
+  --radius-sm: 4px; /* "Published" pill. */
+  --radius-md: 8px; /* Chips, badges, locale select. */
+  --radius-lg: 8px; /* Small inner elements. */
+  --radius-xl: 12px; /* Rows inside a 16px popup, payment cards. */
+  --radius-2xl: 16px; /* Popups, step and FAQ rows, floating UI tiles. */
+  --radius-3xl: var(--card-radius);
+  --radius-4xl: var(--radius-pill); /* Every button and field. */
+  --radius-card: var(--card-radius); /* Cards, media, bento tiles, dialogs. */
+  --radius-panel: var(--panel-radius); /* Hero, mint panels, CTA, footer. */
+
+  --spacing-section: var(--section);
+  --container-page: var(--max-width);
+}
+
+@theme {
+  /* DESIGN.md type scale. It has no 14px step, so text-sm lands on body size. */
+  --text-xs: 0.8rem;
+  --text-xs--line-height: 1.4;
+  --text-sm: 1rem;
+  --text-sm--line-height: 1.4;
+  --text-base: 1rem;
+  --text-base--line-height: 1.4;
+  --text-lg: 1.25rem;
+  --text-lg--line-height: 1.4;
+  --text-xl: 1.5625rem;
+  --text-xl--line-height: 1.4;
+  --text-2xl: 1.9375rem;
+  --text-2xl--line-height: 1.2;
+  --text-3xl: 2.4375rem;
+  --text-3xl--line-height: 1.2;
+
+  /* Flat by default: the 1px line is the only UI shadow, and floating layers share one drop. */
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 1px 1px 0 color-mix(in srgb, var(--ink) 10%, transparent);
+  --shadow-md: 0 24px 48px -18px color-mix(in srgb, var(--ink) 40%, transparent);
+  --shadow-lg: 0 24px 48px -18px color-mix(in srgb, var(--ink) 40%, transparent);
+  --shadow-xl: 0 24px 48px -18px color-mix(in srgb, var(--ink) 40%, transparent);
+  --shadow-2xl: 0 24px 48px -18px color-mix(in srgb, var(--ink) 40%, transparent);
+
+  --aspect-payment-card: 1.586;
+  --aspect-portrait-card: 0.63;
+  --blur-nav: 16px;
+
+  --ease-brand: cubic-bezier(0.22, 0, 0.12, 1);
+  --default-transition-duration: 200ms;
+  --default-transition-timing-function: cubic-bezier(0.22, 0, 0.12, 1);
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --background: #ffffff;
+  --foreground: #091723;
+  --card: #f2f8f3;
+  --card-foreground: #091723;
+  --popover: #ffffff;
+  --popover-foreground: #091723;
+  --primary: #091723;
+  --primary-foreground: #ffffff;
+  --primary-hover: color-mix(in srgb, #091723 82%, #ffffff);
+  --secondary: #e3ebe4;
+  --secondary-foreground: #091723;
+  --muted: #f2f8f3;
+  --muted-foreground: color-mix(in srgb, #091723 60%, transparent);
+  --accent: #f2f8f3;
+  --accent-foreground: #091723;
+  --destructive: var(--rank);
+  --border: color-mix(in srgb, #091723 10%, transparent);
+  --input: color-mix(in srgb, #091723 30%, transparent);
+  --ring: #091723;
+  --chart-1: #ff4f40;
+  --chart-2: #112231;
+  --chart-3: #ffb000;
+  --chart-4: #4f7b33;
+  --chart-5: #5a86b8;
+  --radius: 32px;
+  --sidebar: #f2f8f3;
+  --sidebar-foreground: #091723;
+  --sidebar-primary: #091723;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e3ebe4;
+  --sidebar-accent-foreground: #091723;
+  --sidebar-border: color-mix(in srgb, #091723 10%, transparent);
+  --sidebar-ring: #091723;
+
+  --brand: #ff4f40;
+  --brand-foreground: #ffffff;
+  --ink: #091723;
+  --navy: #112231;
+  --mint: #f2f8f3;
+  --mint-2: #e3ebe4;
+  --sun: #ffb000;
+  --photo-lit: #c9793e;
+  --photo-dark: #241510;
+  --leaf: #4f7b33;
+  --sky: #5a86b8;
+  --rank: color-mix(in srgb, #ff4f40 72%, #091723);
+
+  --radius-pill: 500px;
+  --card-radius: 32px;
+  --panel-radius: 64px;
+  --section: 128px;
+  --max-width: 1312px;
+  --hero-dim: 62%;
+  --fan-tilt: 9deg;
+  --nav-glass: 70%;
 }
 
+/* Derived from the navy inverse panels. DESIGN.md only specifies a light scheme. */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #091723;
+  --foreground: #ffffff;
+  --card: #112231;
+  --card-foreground: #ffffff;
+  --popover: #112231;
+  --popover-foreground: #ffffff;
+  --primary: #ffffff;
+  --primary-foreground: #091723;
+  --primary-hover: #f2f8f3;
+  --secondary: color-mix(in srgb, #ffffff 12%, #112231);
+  --secondary-foreground: #ffffff;
+  --muted: #112231;
+  --muted-foreground: color-mix(in srgb, #ffffff 70%, transparent);
+  --accent: color-mix(in srgb, #ffffff 10%, #112231);
+  --accent-foreground: #ffffff;
+  --destructive: #ff8a7f;
+  --border: color-mix(in srgb, #ffffff 12%, transparent);
+  --input: color-mix(in srgb, #ffffff 30%, transparent);
+  --ring: #ffffff;
+  --chart-1: #ff4f40;
+  --chart-2: #e3ebe4;
+  --chart-3: #ffb000;
+  --chart-4: #8db86a;
+  --chart-5: #8fb4dc;
+  --sidebar: #112231;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #ffffff;
+  --sidebar-primary-foreground: #091723;
+  --sidebar-accent: color-mix(in srgb, #ffffff 12%, #112231);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: color-mix(in srgb, #ffffff 12%, transparent);
+  --sidebar-ring: #ffffff;
 }
 
 @layer base {
@@ -122,51 +203,98 @@
   }
   body {
     @apply bg-background text-foreground;
+    line-height: 1.4;
   }
   html {
     @apply font-sans;
   }
 }
 
-.fid-grid {
-  background-image: radial-gradient(circle, var(--border) 1px, transparent 1.5px);
-  background-size: 24px 24px;
-  mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, black 35%, transparent 80%);
-  -webkit-mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, black 35%, transparent 80%);
+/* Clamped so display sizes hold on mobile. Tracking in em keeps the ratio as they shrink. */
+@utility type-display {
+  font-size: clamp(2.4375rem, 3.5vw + 1.625rem, 3.5rem);
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.022em;
 }
 
-.fid-blob {
-  position: absolute;
-  border-radius: 9999px;
-  background: color-mix(in oklab, var(--primary) 4%, transparent);
-  filter: blur(100px);
+@utility type-stat {
+  font-size: clamp(3rem, 4vw + 2rem, 4rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.022em;
 }
 
-.fid-blob-lg {
-  width: 34rem;
-  height: 34rem;
+@utility type-headline-lg {
+  font-size: clamp(1.9375rem, 2vw + 1.4375rem, 2.4375rem);
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.022em;
 }
 
-.fid-blob-md {
-  width: 24rem;
-  height: 24rem;
+@utility type-headline-md {
+  font-size: 1.5625rem;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: -0.022em;
 }
 
-@keyframes fid-shimmer {
+@utility type-body-lg {
+  font-size: 1.25rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+@utility type-body-md {
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+@utility type-label-md {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+@utility type-caption {
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+@utility type-wordmark {
+  font-size: 14vw; /* DESIGN.md: ~25vw for six letters. "feed in docs" has twelve. */
+  font-weight: 800;
+  line-height: 0.8;
+  letter-spacing: -0.022em;
+}
+
+/* The signature card fan: two portrait cards at the tilt, spreading on hover. */
+@utility fan-left {
+  transform: translate(-82%, -50%) rotate(calc(var(--fan-tilt) * -1));
+}
+
+@utility fan-left-spread {
+  transform: translate(-96%, -50%) rotate(calc(var(--fan-tilt) * -1.4));
+}
+
+@utility fan-right {
+  transform: translate(-18%, -50%) rotate(var(--fan-tilt));
+}
+
+@utility fan-right-spread {
+  transform: translate(-4%, -50%) rotate(calc(var(--fan-tilt) * 1.4));
+}
+
+/* Hero copy rises 24px on load. */
+@keyframes rise {
   from {
-    transform: translateX(-120%);
-  }
-  to {
-    transform: translateX(420%);
+    opacity: 0;
+    transform: translateY(24px);
   }
 }
 
-.fid-shimmer {
-  animation: fid-shimmer 1.4s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fid-shimmer {
-    animation: none;
-  }
+@utility rise {
+  animation: rise 300ms var(--ease-brand) backwards;
 }

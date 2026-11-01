@@ -1,8 +1,48 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { ImageResponse } from "next/og";
 
 export const alt = "Feed in Docs — paste a documentation URL, get an llms.txt index";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
+
+const fontDir = join(process.cwd(), "node_modules/@fontsource/onest/files");
+const onestRegular = await readFile(join(fontDir, "onest-latin-400-normal.woff"));
+const onestExtraBold = await readFile(join(fontDir, "onest-latin-800-normal.woff"));
+
+const INK = "#091723";
+const MUTED = "#6b747b";
+const CORAL = "#ff4f40";
+const MINT = "#f2f8f3";
+const NAVY = "#112231";
+const WHITE = "#ffffff";
+
+function FanCard({ tilt, left, dark, title }: FanCardProps) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 102,
+        left,
+        width: 220,
+        height: 349,
+        display: "flex",
+        alignItems: "flex-end",
+        padding: 24,
+        borderRadius: 12,
+        backgroundColor: dark ? NAVY : WHITE,
+        color: dark ? WHITE : INK,
+        fontSize: 30,
+        fontWeight: 800,
+        transform: `rotate(${tilt}deg)`,
+      }}
+    >
+      {title}
+    </div>
+  );
+}
+
+type FanCardProps = { tilt: number; left: number; dark?: boolean; title: string };
 
 export default function Image() {
   return new ImageResponse(
@@ -11,76 +51,64 @@ export default function Image() {
         width: "100%",
         height: "100%",
         display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 28,
-        backgroundColor: "#0a0a0a",
-        backgroundImage: "radial-gradient(circle, #262626 1px, transparent 1.5px)",
-        backgroundSize: "24px 24px",
-        fontFamily: "sans-serif",
+        padding: 24,
+        backgroundColor: WHITE,
+        fontFamily: "Onest",
       }}
     >
       <div
         style={{
+          flex: 1,
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          padding: 56,
+          borderRadius: "64px 0 0 64px",
+          backgroundColor: MINT,
+          color: INK,
         }}
       >
-        <svg width="112" height="112" viewBox="0 0 64 64">
-          <rect width="64" height="64" rx="14" fill="#fafafa" />
-          <g
-            transform="translate(20 20)"
-            fill="none"
-            stroke="#171717"
-            stroke-width="2.6"
-            stroke-linecap="round"
-            stroke-linejoin="round"
+        <div style={{ display: "flex", fontSize: 34, fontWeight: 800, color: CORAL }}>
+          feed in docs
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              fontSize: 88,
+              fontWeight: 800,
+              lineHeight: 1.1,
+              letterSpacing: "-0.022em",
+            }}
           >
-            <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-            <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-            <path d="M10 9H8" />
-            <path d="M16 13H8" />
-            <path d="M16 17H8" />
-          </g>
-        </svg>
+            <span>Docs in.</span>
+            <span>llms.txt out.</span>
+          </div>
+          <div style={{ display: "flex", fontSize: 28, color: MUTED }}>
+            Paste a URL, get an index for your agent
+          </div>
+        </div>
       </div>
       <div
         style={{
+          position: "relative",
+          width: 460,
           display: "flex",
-          fontSize: 76,
-          fontWeight: 700,
-          color: "#fafafa",
-          letterSpacing: "-0.03em",
+          borderRadius: "0 64px 64px 0",
+          backgroundColor: CORAL,
         }}
       >
-        Docs in. llms.txt out.
-      </div>
-      <div
-        style={{
-          display: "flex",
-          fontSize: 30,
-          color: "#a3a3a3",
-        }}
-      >
-        Paste a documentation URL, get a copyable index for your agent
-      </div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          borderRadius: 999,
-          border: "1px solid #262626",
-          padding: "12px 28px",
-          fontSize: 26,
-          color: "#d4d4d4",
-        }}
-      >
-        feed-in-docs.vercel.app
+        <FanCard tilt={-9} left={28} title="docs" />
+        <FanCard tilt={9} left={184} dark title="llms.txt" />
       </div>
     </div>,
-    { ...size },
+    {
+      ...size,
+      fonts: [
+        { name: "Onest", data: onestRegular, style: "normal", weight: 400 },
+        { name: "Onest", data: onestExtraBold, style: "normal", weight: 800 },
+      ],
+    },
   );
 }

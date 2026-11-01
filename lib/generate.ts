@@ -1,11 +1,14 @@
 import { load } from "cheerio";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { escapeMarkdown, truncate } from "@/lib/text";
 
 const MAX_BYTES = 1_000_000;
 const MAX_SITEMAP_BYTES = 10_000_000;
 const TIMEOUT_MS = 8_000;
 const CONCURRENCY = 8;
+const MAX_TITLE_LENGTH = 100;
+const MAX_DESCRIPTION_LENGTH = 180;
 
 type Page = { title: string; project: string; description: string; url: string; links: string[] };
 
@@ -128,10 +131,7 @@ async function sitemapPages(start: URL, prefix: string) {
 }
 
 function clean(text: string) {
-  return text
-    .replace(/\s+/g, " ")
-    .replace(/[[\]<>]/g, "")
-    .trim();
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function scopePath(url: URL) {
@@ -153,12 +153,16 @@ function parsePage(html: string, url: URL, prefix: string): Page {
       url.pathname.split("/").at(-1) ||
       url.hostname,
   );
-  const project = clean($("title").text().split("|").at(-1) || "") || url.hostname;
-  const description = clean(
-    $('meta[name="description"]').attr("content") ||
-      $("main p").first().text() ||
-      $("article p").first().text(),
-  ).slice(0, 180);
+  // Scoped to <head>: `$("title")` also matches the <title> inside every inline SVG.
+  const project = clean($("head > title").first().text().split("|").at(-1) || "") || url.hostname;
+  const description = truncate(
+    clean(
+      $('meta[name="description"]').attr("content") ||
+        $("main p").first().text() ||
+        $("article p").first().text(),
+    ),
+    MAX_DESCRIPTION_LENGTH,
+  );
   const links = new Set<string>();
   $("a[href]").each((_, element) => {
     const href = $(element).attr("href");
@@ -246,10 +250,18 @@ export async function generateLlmsTxt(input: string) {
   if (!pages.length) throw new Error("No documentation pages were found at this URL.");
   const project = pages[0].project;
   const summary = pages[0].description || `Documentation for ${project}.`;
-  const lines = [`# ${project}`, "", `> ${summary}`, "", "## Documentation", ""];
+  const lines = [
+    `# ${escapeMarkdown(project)}`,
+    "",
+    `> ${escapeMarkdown(summary)}`,
+    "",
+    "## Documentation",
+    "",
+  ];
   for (const page of pages) {
-    const title = page.title.replace(/[:\n]/g, " ").slice(0, 100);
-    const description = page.description ? `: ${page.description}` : "";
+    // The colon is removed because `: ` separates the link from its description.
+    const title = escapeMarkdown(truncate(page.title.replace(/\s*:+\s*/g, " "), MAX_TITLE_LENGTH));
+    const description = page.description ? `: ${escapeMarkdown(page.description)}` : "";
     lines.push(`- [${title}](${page.outputUrl})${description}`);
   }
   return {
