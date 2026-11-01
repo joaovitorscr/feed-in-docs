@@ -1,0 +1,8 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "sortTailwindcss": {
+    "stylesheet": "app/globals.css",
+    "functions": ["cn", "cva"]
+  },
+  "ignorePatterns": [".agents/**", "docs/design-system.html", "pnpm-lock.yaml"]
+}

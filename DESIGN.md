@@ -77,20 +77,20 @@ It is for consumer fintech, neobanks, budgeting apps and anything that wants to 
 
 ## Colors
 
-| Role       | Value | Notes |
-| ---------- | ----- | ----- |
-| bg         | `#ffffff` | page |
-| bg-2       | `#f2f8f3` | mint panels, account cards, locale strip, nav segment, FAQ hover |
-| fg         | `#091723` | headlines, primary buttons, outlines |
-| ink        | `#091723` | text on white surfaces (white pills, burrow tiles, seals); stays dark when a scheme flips `fg` light |
-| fg-muted   | `#6b747b` | token for muted text; in CSS the page uses `color-mix(fg 60%)` |
-| accent     | `#ff4f40` | wordmark, coral tiles, the card, "Step 1", rank highlights |
-| accent-fg  | `#ffffff` | text on coral and navy |
-| border     | `color-mix(in srgb,var(--fg) 10%,transparent)` | disabled icon-button rings, footer rule |
-| navy       | `#112231` | inverse panels: CTA, footer, highlighted pricing, navy tiles |
-| mint-2     | `#e3ebe4` | chart tracks, inverse hover |
-| sun        | `#ffb000` | card chip, warm glow in carousel media stand-ins |
-| photo-lit / photo-dark / leaf / sky | `#c9793e` / `#241510` / `#4f7b33` / `#5a86b8` | photo-dark is the hero scrim and the backdrop under the photo; the rest only tint small carousel media tiles |
+| Role                                | Value                                          | Notes                                                                                                        |
+| ----------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| bg                                  | `#ffffff`                                      | page                                                                                                         |
+| bg-2                                | `#f2f8f3`                                      | mint panels, account cards, locale strip, nav segment, FAQ hover                                             |
+| fg                                  | `#091723`                                      | headlines, primary buttons, outlines                                                                         |
+| ink                                 | `#091723`                                      | text on white surfaces (white pills, burrow tiles, seals); stays dark when a scheme flips `fg` light         |
+| fg-muted                            | `#6b747b`                                      | token for muted text; in CSS the page uses `color-mix(fg 60%)`                                               |
+| accent                              | `#ff4f40`                                      | wordmark, coral tiles, the card, "Step 1", rank highlights                                                   |
+| accent-fg                           | `#ffffff`                                      | text on coral and navy                                                                                       |
+| border                              | `color-mix(in srgb,var(--fg) 10%,transparent)` | disabled icon-button rings, footer rule                                                                      |
+| navy                                | `#112231`                                      | inverse panels: CTA, footer, highlighted pricing, navy tiles                                                 |
+| mint-2                              | `#e3ebe4`                                      | chart tracks, inverse hover                                                                                  |
+| sun                                 | `#ffb000`                                      | card chip, warm glow in carousel media stand-ins                                                             |
+| photo-lit / photo-dark / leaf / sky | `#c9793e` / `#241510` / `#4f7b33` / `#5a86b8`  | photo-dark is the hero scrim and the backdrop under the photo; the rest only tint small carousel media tiles |
 
 Scheme: light. Contrast rule: navy on white ≈ 18:1; muted text is navy at 60% (≈ 5:1). White type only on coral, navy or a darkened photo.
 Color rules: coral is a surface colour and the brand; never use it for body text or primary buttons. Primary buttons are navy. Tiles alternate coral / navy / mint so no two neighbours match.
@@ -176,62 +176,103 @@ Five knobs. `--panel-radius` (16–80px) drives hero, mint panels, CTA, chart an
 ## Reference CSS
 
 ```css
-:root{
---bg:#ffffff;
---bg-2:#f2f8f3;
---fg:#091723;
---ink:#091723;
---fg-muted:#6b747b;
---accent:#ff4f40;
---accent-fg:#ffffff;
---navy:#112231;
---mint-2:#e3ebe4;
---sun:#ffb000;
---photo-lit:#c9793e;
---photo-dark:#241510;
---leaf:#4f7b33;
---sky:#5a86b8;
---border:color-mix(in srgb,var(--fg) 10%,transparent);
---f60:color-mix(in srgb,var(--fg) 60%,transparent);
---f30:color-mix(in srgb,var(--fg) 30%,transparent);
---w30:color-mix(in srgb,var(--accent-fg) 30%,transparent);
---w90:color-mix(in srgb,var(--accent-fg) 90%,transparent);
---hover:color-mix(in srgb,var(--fg) 82%,var(--bg));
---rank:color-mix(in srgb,var(--accent) 72%,var(--fg));
---font-display:"Onest", system-ui, sans-serif;
---font-body:"Onest", system-ui, sans-serif;
---radius:32px;
---radius-sm:8px;
---radius-md:16px;
---radius-lg:64px;
---radius-pill:500px;
---space-1:4px;
---space-2:8px;
---space-3:16px;
---space-4:24px;
---space-5:32px;
---space-6:48px;
---space-7:64px;
---space-8:128px;
---shadow:0 1px 1px 0 color-mix(in srgb,var(--fg) 10%,transparent);
---shadow-card:0 24px 48px -18px color-mix(in srgb,var(--fg) 40%,transparent);
---ease:cubic-bezier(.22,0,.12,1);
---dur:200ms;
---max-width:1312px;
---section:128px;
---hero-dim:62%;
---fan-tilt:9deg;
---card-radius:32px;
---panel-radius:64px;
---nav-glass:70%;
+:root {
+  --bg: #ffffff;
+  --bg-2: #f2f8f3;
+  --fg: #091723;
+  --ink: #091723;
+  --fg-muted: #6b747b;
+  --accent: #ff4f40;
+  --accent-fg: #ffffff;
+  --navy: #112231;
+  --mint-2: #e3ebe4;
+  --sun: #ffb000;
+  --photo-lit: #c9793e;
+  --photo-dark: #241510;
+  --leaf: #4f7b33;
+  --sky: #5a86b8;
+  --border: color-mix(in srgb, var(--fg) 10%, transparent);
+  --f60: color-mix(in srgb, var(--fg) 60%, transparent);
+  --f30: color-mix(in srgb, var(--fg) 30%, transparent);
+  --w30: color-mix(in srgb, var(--accent-fg) 30%, transparent);
+  --w90: color-mix(in srgb, var(--accent-fg) 90%, transparent);
+  --hover: color-mix(in srgb, var(--fg) 82%, var(--bg));
+  --rank: color-mix(in srgb, var(--accent) 72%, var(--fg));
+  --font-display: "Onest", system-ui, sans-serif;
+  --font-body: "Onest", system-ui, sans-serif;
+  --radius: 32px;
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 64px;
+  --radius-pill: 500px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 32px;
+  --space-6: 48px;
+  --space-7: 64px;
+  --space-8: 128px;
+  --shadow: 0 1px 1px 0 color-mix(in srgb, var(--fg) 10%, transparent);
+  --shadow-card: 0 24px 48px -18px color-mix(in srgb, var(--fg) 40%, transparent);
+  --ease: cubic-bezier(0.22, 0, 0.12, 1);
+  --dur: 200ms;
+  --max-width: 1312px;
+  --section: 128px;
+  --hero-dim: 62%;
+  --fan-tilt: 9deg;
+  --card-radius: 32px;
+  --panel-radius: 64px;
+  --nav-glass: 70%;
 }
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:48px;padding:0 24px;border:1px solid var(--fg);border-radius:var(--radius-pill);background:var(--fg);color:var(--accent-fg);font:600 16px/1 var(--font-body)}
-.btn:hover{background:var(--hover);border-color:var(--hover)}
-.btn.o{background:transparent;color:var(--fg);border:2px solid var(--fg)}
-.ac{display:flex;flex-direction:column;padding:40px 26px 26px;min-height:320px;border-radius:var(--card-radius);background:var(--bg-2)}
-.ac h3{text-decoration:underline 2px transparent;text-underline-offset:4px;transition:text-decoration-color .3s var(--ease)}
-.ac:hover h3{text-decoration-color:currentColor}
-.bt{display:flex;flex-direction:column;justify-content:flex-end;height:320px;padding:24px;border-radius:var(--card-radius);background:var(--accent);color:var(--accent-fg)}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 24px;
+  border: 1px solid var(--fg);
+  border-radius: var(--radius-pill);
+  background: var(--fg);
+  color: var(--accent-fg);
+  font: 600 16px/1 var(--font-body);
+}
+.btn:hover {
+  background: var(--hover);
+  border-color: var(--hover);
+}
+.btn.o {
+  background: transparent;
+  color: var(--fg);
+  border: 2px solid var(--fg);
+}
+.ac {
+  display: flex;
+  flex-direction: column;
+  padding: 40px 26px 26px;
+  min-height: 320px;
+  border-radius: var(--card-radius);
+  background: var(--bg-2);
+}
+.ac h3 {
+  text-decoration: underline 2px transparent;
+  text-underline-offset: 4px;
+  transition: text-decoration-color 0.3s var(--ease);
+}
+.ac:hover h3 {
+  text-decoration-color: currentColor;
+}
+.bt {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 320px;
+  padding: 24px;
+  border-radius: var(--card-radius);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
 ```
 
 ## Reference markup

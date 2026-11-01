@@ -29,7 +29,6 @@ Run development commands from the repository root
   - Run gh from the directory the relative paths resolve against. Keep the files outside the worktree, for example in /tmp.
 - One concern per PR. If the description says "also", split it.
 
-
 ## Plans and work artifacts
 
 - Do not commit implementation plans, research notes, or agent scratch files. Keep temporary working material outside the worktree. .plans/ is gitignored only as a safety net for legacy tooling.
