@@ -10,7 +10,7 @@ import {
   CodeBlockTitle,
 } from "@/components/ui/code-block";
 import { Kbd } from "@/components/ui/kbd";
-import { REPO_URL, SITE_DESCRIPTION, SITE_TITLE, SITE_URL } from "@/lib/site";
+import { AUTHOR_URL, REPO_URL, SITE_DESCRIPTION, SITE_TITLE, SITE_URL } from "@/lib/site";
 
 // Lives here, not in the root layout, because layout metadata also applies to 404 responses.
 export const metadata: Metadata = {
@@ -193,7 +193,11 @@ export default function Page() {
 
       <footer className="mx-auto flex w-full max-w-page flex-col gap-1 px-6 pb-8 type-caption text-muted-foreground sm:flex-row sm:items-center sm:justify-between md:px-16">
         <p>
-          A small tool for making documentation easier to find.{" "}
+          A small tool for making documentation easier to find. Made by{" "}
+          <a href={AUTHOR_URL} className={LINK_CLASS}>
+            João Vitor
+          </a>
+          .{" "}
           <a href={REPO_URL} className={LINK_CLASS}>
             GitHub
           </a>{" "}

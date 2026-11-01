@@ -5,7 +5,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { SITE_DESCRIPTION, SITE_TITLE, SITE_URL } from "@/lib/site";
+import { AUTHOR_URL, SITE_DESCRIPTION, SITE_TITLE, SITE_URL } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
 // A static import would ship the fixtures in a production chunk even though it never renders.
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   },
   description: SITE_DESCRIPTION,
   applicationName: "Feed in Docs",
-  authors: [{ name: "joaovitorscr", url: "https://github.com/joaovitorscr" }],
+  authors: [{ name: "joaovitorscr", url: AUTHOR_URL }],
   creator: "joaovitorscr",
 };
 
