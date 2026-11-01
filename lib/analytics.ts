@@ -59,6 +59,16 @@ function stopAnalytics() {
   });
 }
 
+/**
+ * Sends one PostHog event. Does nothing until the visitor accepts, and nothing on localhost,
+ * so callers don't need their own consent check.
+ */
+export function trackEvent(name: string, properties: Record<string, string | number | boolean>) {
+  void sdk?.then(({ default: posthog }) => {
+    if (currentConsent() === "granted" && posthog.__loaded) posthog.capture(name, properties);
+  });
+}
+
 export function subscribeToConsent(listener: () => void) {
   listeners.add(listener);
   return () => {
@@ -68,6 +78,10 @@ export function subscribeToConsent(listener: () => void) {
 
 export function isConsentPending() {
   return analyticsEnabled && (reviewing || currentConsent() === null);
+}
+
+export function isAnalyticsAccepted() {
+  return analyticsEnabled && currentConsent() === "granted";
 }
 
 /** Reopens the banner so a visitor can change their answer. */
