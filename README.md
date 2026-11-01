@@ -78,7 +78,7 @@ pnpm dev
 Open http://localhost:3000. No environment variables are required to generate text.
 
 - `BLOB_READ_WRITE_TOKEN` turns on shareable links. Without it, the app returns no link.
-- `NEXT_PUBLIC_SITE_URL` is your deployment's URL, used in metadata, `robots.txt`, and the sitemap. It defaults to `https://feed-in-docs.vercel.app`.
+- `NEXT_PUBLIC_SITE_URL` is your deployment's URL, used in metadata, `robots.txt`, `llms.txt`, and the sitemap. It defaults to `https://feed-in-docs.vercel.app`.
 
 ## Development
 
@@ -92,4 +92,4 @@ pnpm check:react-doctor
 
 CI runs `lint`, `format:check`, `typecheck`, and `check:react-doctor` on every PR. `pnpm install` also sets up a pre-push hook that runs the same four.
 
-The crawler and the `llms.txt` writer are in `lib/generate.ts`, and link storage is in `lib/links.ts`. The UI is `app/page.tsx`. `app/api/generate/route.ts` is the endpoint, and `app/l/[id]/llms.txt/route.ts` serves saved files.
+The crawler and the `llms.txt` writer are in `lib/generate.ts`, and link storage is in `lib/links.ts`. The landing page and its metadata are in `app/page.tsx`, and the interactive tool is `components/generator.tsx`. `app/api/generate/route.ts` is the endpoint, and `app/l/[id]/llms.txt/route.ts` serves saved files.
