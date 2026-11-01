@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { Generator } from "@/components/generator";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { SiteHeader } from "@/components/site-header";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   CodeBlock,
@@ -123,14 +123,7 @@ export default function Page() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
-      <header className="sticky top-0 z-10 bg-background/(--nav-glass) shadow-sm backdrop-blur-nav">
-        <div className="mx-auto flex h-22 w-full max-w-page items-center justify-between gap-6 px-6 md:px-16">
-          <span className="min-w-0 text-xl font-extrabold tracking-tight text-brand">
-            feed in docs
-          </span>
-          <ThemeToggle />
-        </div>
-      </header>
+      <SiteHeader />
 
       <main className="flex w-full flex-1 flex-col gap-20 px-6 py-10 md:gap-section md:py-16">
         <Generator />
