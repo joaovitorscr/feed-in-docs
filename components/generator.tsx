@@ -12,6 +12,7 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
+import { FeedbackForm } from "@/components/feedback-form";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -538,6 +539,8 @@ function ResultStage({
           Start over
         </Button>
       </div>
+
+      <FeedbackForm sourceUrl={sourceUrl} pageCount={result.count} failedCount={result.failed} />
     </CardContent>
   );
 }
