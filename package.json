@@ -7,11 +7,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "oxlint .",
+    "lint": "oxlint . --deny-warnings",
     "format": "oxfmt .",
     "typecheck": "tsc --noEmit",
     "format:check": "oxfmt --check .",
-    "check:react": "react-doctor . --no-supply-chain"
+    "check:react-doctor": "react-doctor . --no-supply-chain",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

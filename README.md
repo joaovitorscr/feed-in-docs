@@ -87,7 +87,9 @@ pnpm lint
 pnpm format:check
 pnpm typecheck
 pnpm build
-pnpm check:react
+pnpm check:react-doctor
 ```
+
+CI runs `lint`, `format:check`, `typecheck`, and `check:react-doctor` on every PR. `pnpm install` also sets up a pre-push hook that runs the same four.
 
 The crawler and the `llms.txt` writer are in `lib/generate.ts`, and link storage is in `lib/links.ts`. The UI is `app/page.tsx`. `app/api/generate/route.ts` is the endpoint, and `app/l/[id]/llms.txt/route.ts` serves saved files.

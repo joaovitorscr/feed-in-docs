@@ -1,0 +1,9 @@
+#!/bin/sh
+# Runs the CI checks before a push. `pnpm install` turns this hook on through the
+# prepare script. Keep the list in sync with .github/workflows/ci.yml.
+set -e
+
+pnpm -s run format:check
+pnpm -s run lint
+pnpm -s run typecheck
+pnpm -s run check:react-doctor

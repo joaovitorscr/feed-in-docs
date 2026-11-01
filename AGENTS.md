@@ -16,6 +16,8 @@ Run development commands from the repository root
 
 - Use the smallest proof that the change works.
 - Always lint before commiting.
+- A pre-push hook runs format, lint, typecheck, and React Doctor, and CI runs the same four on every PR. Fix a failure instead of pushing with `--no-verify`.
+- Vercel builds every PR, so CI does not run `next build`.
 
 ## Pull Requests
 
