@@ -5,5 +5,5 @@ allowBuilds:
   unrs-resolver: true
   msw: false
 
-minimumReleaseAge: 1440
+minimumReleaseAge: 4320
 blockExoticSubdeps: true
