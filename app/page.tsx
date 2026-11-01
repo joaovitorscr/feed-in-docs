@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { CookieSettings } from "@/components/consent-banner";
 import { Generator } from "@/components/generator";
 import { SiteHeader } from "@/components/site-header";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -205,6 +206,7 @@ export default function Page() {
           <a href="/llms.txt" className={LINK_CLASS}>
             llms.txt
           </a>
+          <CookieSettings />
         </p>
         <p>
           Press <Kbd>d</Kbd> to toggle the theme.

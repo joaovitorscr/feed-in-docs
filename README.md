@@ -79,7 +79,7 @@ Open http://localhost:3000. No environment variables are required to generate te
 
 - `BLOB_READ_WRITE_TOKEN` turns on shareable links. Without it, the app returns no link.
 - `NEXT_PUBLIC_SITE_URL` is your deployment's URL, used in metadata, `robots.txt`, `llms.txt`, and the sitemap. It defaults to `https://feed-in-docs.vercel.app`.
-- `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` turns on PostHog analytics. Without it, nothing is tracked.
+- `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` turns on the cookie banner and PostHog analytics. PostHog only loads after a visitor accepts, and never on localhost. Without the token, there's no banner and nothing is tracked.
 
 ## Development
 

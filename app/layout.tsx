@@ -3,6 +3,7 @@ import dynamic from "next/dynamic";
 import type { Metadata, Viewport } from "next";
 
 import "./globals.css";
+import { ConsentBanner } from "@/components/consent-banner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AUTHOR_URL, SITE_DESCRIPTION, SITE_TITLE, SITE_URL } from "@/lib/site";
@@ -61,6 +62,7 @@ export default function RootLayout({
         <ThemeProvider>
           <TooltipProvider>
             {children}
+            <ConsentBanner />
             {DataToggle && <DataToggle />}
           </TooltipProvider>
         </ThemeProvider>
