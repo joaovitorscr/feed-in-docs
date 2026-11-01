@@ -4,6 +4,7 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
   msw: false
+  core-js: false
 
 minimumReleaseAge: 4320
 blockExoticSubdeps: true
