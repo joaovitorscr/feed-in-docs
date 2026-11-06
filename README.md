@@ -11,7 +11,7 @@
 
 # Feed in Docs
 
-Paste a documentation URL and get an [`llms.txt`](https://llmstxt.org) index you can hand to a coding agent, as a shareable link or as text. It lists the real pages of a docs site with a one-line description of each, so the agent stops guessing at URLs. Most docs sites don't publish this file, so Feed in Docs crawls the site and writes one. There's no account and no page cap.
+Paste a documentation URL and get an [`llms.txt`](https://llmstxt.org) index you can hand to a coding agent, as a shareable link or as text. It lists the real pages of a docs site with a one-line description of each, so the agent stops guessing at URLs. Most docs sites don't publish this file, so Feed in Docs crawls the site and writes one. There's no account and no page cap. A crawl stops after 4 minutes, and a site too large to finish by then gets the pages read so far, with a count of the ones it found but didn't read.
 
 > [!NOTE]
 > **An index, not a copy.** The result holds links and descriptions, and your agent still fetches the pages it needs.
@@ -23,7 +23,7 @@ Paste a documentation URL and get an [`llms.txt`](https://llmstxt.org) index you
 The graphic above is the whole idea. On one side of the line is the site as a person reads it, and on the other is the same site as an agent needs it.
 
 1. **Docs.** The crawler stays on one site and inside one section. If the URL you entered redirects to another site, the crawl moves to where it landed, so `docs.readthedocs.io/en/stable/` covers `docs.readthedocs.com/platform/stable/`, and the rules below use that page's path. If the path has a `docs` or `documentation` segment, the section ends there, so `/en/docs/guides/intro` covers `/en/docs/`, and a version right after it is kept, so `/docs/3.8.1/installation` covers `/docs/3.8.1/`. A path without a trailing slash covers its parent directory, so `/guide/intro` covers `/guide/`. A path with one covers itself, so `/guide/` covers `/guide/`. If that page and the sitemap link to fewer than 5 pages inside it, the section widens once to the parent, so `/en/getting-started/` covers `/en/`. It never widens to the whole site or past a version or channel like `3.2`, `stable` or `latest`.
-2. **Crawl.** It reads the page you entered and `/sitemap.xml` with any nested sitemaps, then follows links from each page. It keeps 8 requests in flight and starts the next as soon as one finishes. The index lists the page you entered first, then the sitemap's pages in sitemap order, then pages found through links in the order each page links to them, so the same site gives the same file however fast each page answers. A site with no sitemap still works through links alone. A page that can't be read is counted and skipped, but if the URL you entered fails, the whole run fails.
+2. **Crawl.** It reads the page you entered and `/sitemap.xml` with any nested sitemaps, then follows links from each page. It keeps 8 requests in flight and starts the next as soon as one finishes. The index lists the page you entered first, then the sitemap's pages in sitemap order, then pages found through links in the order each page links to them, so the same site gives the same file however fast each page answers. A site with no sitemap still works through links alone. A page that can't be read is counted and skipped, but if the URL you entered fails, the whole run fails. After 4 minutes no new request starts, and the requests still running are stopped. The pages it didn't get to are counted as unread, not as failed.
 3. **llms.txt.** Each page becomes one line. The title comes from the first `h1`, then `<title>`. The description comes from the meta description, then the first paragraph, cut to 180 characters. If a page declares a same-origin `<link rel="alternate" type="text/markdown">`, the entry links to that file and not the HTML page.
 
 ## Output
@@ -54,7 +54,28 @@ curl -X POST https://feed-in-docs.vercel.app/api/generate \
   -d '{"url": "https://tailwindcss.com/docs"}'
 ```
 
-The response is `{ "text": "...", "count": 180, "failed": 2, "link": "https://..." }`, where `text` is the index, `count` is the pages indexed, `failed` is the pages it couldn't read, and `link` is the shareable URL, or `null` if the save failed. Any error returns HTTP 400 with `{ "error": "..." }`.
+The response looks like this:
+
+```json
+{
+  "text": "...",
+  "count": 180,
+  "failed": 2,
+  "truncated": false,
+  "unread": 0,
+  "unreadIsLowerBound": false,
+  "link": "https://..."
+}
+```
+
+- `text` is the index, and `count` is the pages listed in it.
+- `failed` is the pages it couldn't read: broken, blocked, too large, or slower than 8 seconds.
+- `truncated` is `true` when the crawl stopped at its 4-minute limit with pages left over. `text` then lists only the pages read before it stopped.
+- `unread` is the pages in the section that it found but didn't read before the limit: the ones still queued, plus the ones whose requests the limit cut short. It never counts a page in `failed`, a page outside the section, or the same URL twice. It's `0` when `truncated` is `false`.
+- `unreadIsLowerBound` is `true` when the limit also stopped it reading the sitemaps, so the site may have more pages than `unread` counts.
+- `link` is the shareable URL, or `null` if the save failed or took longer than 20 seconds.
+
+A result over 4.4 MB, measured as the JSON response, returns HTTP 413. Any other error returns HTTP 400 with `{ "error": "..." }`.
 
 ## Limits
 
@@ -62,7 +83,7 @@ The crawler makes 8 requests at a time, gives each one 8 seconds, and follows up
 
 It rejects localhost, private IP addresses, and URLs with an explicit port or credentials. This keeps the server from being pointed at internal hosts, and it means you can't index a docs site running on your own machine.
 
-The API route doesn't set `maxDuration`, so on Vercel your plan's default function limit applies. A very large site can hit it before the crawl finishes.
+Each request has a time budget. The crawl gets 4 minutes (`RUN_BUDGET_MS` in `lib/limits.ts`), then saving the link gets 20 seconds (`SAVE_BUDGET_MS`). The route sets `maxDuration` to 300 seconds, so it answers before Vercel's function limit ends the request with a 504. 300 seconds needs Vercel's Fluid compute, which this deployment uses. Without it, lower the three numbers together: `RUN_BUDGET_MS + SAVE_BUDGET_MS` must stay at least 5 seconds under `maxDuration`.
 
 ## Run locally
 

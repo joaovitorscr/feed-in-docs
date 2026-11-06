@@ -1,6 +1,7 @@
 import { load } from "cheerio";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { RUN_BUDGET_MS } from "@/lib/limits";
 import { inScope, scopePath, widenScope } from "@/lib/scope";
 import { escapeMarkdown, truncate } from "@/lib/text";
 
@@ -10,6 +11,24 @@ const TIMEOUT_MS = 8_000;
 const CONCURRENCY = 8;
 const MAX_TITLE_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 180;
+
+/** Why a fetch stopped when the run's time budget ran out. The crawl counts these as unread, not failed. */
+export class DeadlineError extends Error {
+  name = "DeadlineError";
+  constructor() {
+    super("The crawl ran out of time.");
+  }
+}
+
+/** Rejects with the signal's reason as soon as it aborts. For steps that take no signal, like DNS. */
+function raceSignal<T>(promise: Promise<T>, signal: AbortSignal) {
+  return new Promise<T>((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason);
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
 
 type Page = {
   title: string;
@@ -43,7 +62,8 @@ function isPrivateIp(address: string) {
   );
 }
 
-async function assertPublicUrl(url: URL) {
+// Pass `signal` to race the DNS lookup against it. An abort rejects with the signal's reason.
+async function assertPublicUrl(url: URL, signal?: AbortSignal) {
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.port) {
     throw new Error("Enter a public HTTP or HTTPS documentation URL.");
   }
@@ -53,8 +73,13 @@ async function assertPublicUrl(url: URL) {
   }
   let addresses: Array<{ address: string }>;
   try {
-    addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true });
+    if (isIP(host)) addresses = [{ address: host }];
+    else {
+      const pending = lookup(host, { all: true });
+      addresses = await (signal ? raceSignal(pending, signal) : pending);
+    }
   } catch {
+    if (signal?.aborted) throw signal.reason;
     throw new Error("Could not find this website. Check the URL and try again.");
   }
   if (!addresses.length || addresses.some(({ address }) => isPrivateIp(address))) {
@@ -84,15 +109,24 @@ async function readText(response: Response, maxBytes: number) {
 
 // Follows up to 3 redirects by hand, checking every hop. Pass `expectedOrigin: null` only
 // for the start page, which may redirect to another website; every other fetch stays on it.
-async function fetchText(url: URL, expectedOrigin: string | null, sitemap = false) {
+// Each hop's DNS lookup, request and body read share one signal: the run's `deadline`, or
+// TIMEOUT_MS for that hop, whichever ends first. No hop starts once the deadline has passed.
+async function fetchText(
+  url: URL,
+  expectedOrigin: string | null,
+  deadline: AbortSignal,
+  sitemap = false,
+) {
   let current = url;
   for (let redirects = 0; redirects < 4; redirects++) {
-    await assertPublicUrl(current);
+    deadline.throwIfAborted();
+    const signal = AbortSignal.any([deadline, AbortSignal.timeout(TIMEOUT_MS)]);
+    await assertPublicUrl(current, signal);
     if (expectedOrigin !== null && current.origin !== expectedOrigin)
       throw new Error("Documentation redirected to another website.");
     const response = await fetch(current, {
       redirect: "manual",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal,
       headers: {
         "User-Agent": "FeedInDocs/1.0",
         Accept: sitemap ? "application/xml, text/xml" : "text/html",
@@ -122,16 +156,22 @@ async function fetchText(url: URL, expectedOrigin: string | null, sitemap = fals
 }
 
 // Every same-origin page URL in the sitemaps, in sitemap order. The caller filters by scope.
-async function sitemapPages(start: URL) {
+// `cutOff` is true when the deadline stopped the walk with sitemaps still unread.
+async function sitemapPages(start: URL, deadline: AbortSignal) {
   const sitemapQueue = [new URL("/sitemap.xml", start).href];
   const seenSitemaps = new Set<string>();
   const pages = new Set<string>();
+  let cutOff = false;
   while (sitemapQueue.length) {
     const href = sitemapQueue.shift()!;
     if (seenSitemaps.has(href)) continue;
+    if (deadline.aborted) {
+      cutOff = true;
+      break;
+    }
     seenSitemaps.add(href);
     try {
-      const { text } = await fetchText(new URL(href), start.origin, true);
+      const { text } = await fetchText(new URL(href), start.origin, deadline, true);
       const $ = load(text, { xmlMode: true });
       $("sitemap > loc").each((_, element) => {
         try {
@@ -152,11 +192,15 @@ async function sitemapPages(start: URL) {
           /* Ignore malformed sitemap entries. */
         }
       });
-    } catch {
+    } catch (error) {
+      if (error === deadline.reason) {
+        cutOff = true;
+        break;
+      }
       /* Link crawling still works when no sitemap is available. */
     }
   }
-  return pages;
+  return { pages, cutOff };
 }
 
 function clean(text: string) {
@@ -215,32 +259,49 @@ function parsePage(html: string, url: URL): Page {
   return { title, project, description, outputUrl, links: [...links] };
 }
 
-export async function generateLlmsTxt(input: string) {
+/**
+ * Crawls the docs at `input` and writes the index. The crawl stops `budgetMs` after the call
+ * starts: the route always uses RUN_BUDGET_MS, and the eval passes a larger one for slow replays.
+ * Then `truncated` is true, and `unread` counts the in-scope pages found but not read.
+ */
+export async function generateLlmsTxt(input: string, { budgetMs = RUN_BUDGET_MS } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DeadlineError()), budgetMs);
+  try {
+    return await crawlSite(input, controller.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function crawlSite(input: string, deadline: AbortSignal) {
   let start: URL;
   try {
     start = new URL(input);
   } catch {
     throw new Error("Enter a valid documentation URL.");
   }
-  await assertPublicUrl(start);
+  await assertPublicUrl(start, deadline);
   start.hash = "";
   start.search = "";
   let failed = 0;
+  let unread = 0;
 
   // The start page is read on its own, next to the sitemap, because together they
   // decide whether a sparse trailing-slash scope widens before the crawl begins.
   // The sitemap is read from the typed origin in parallel, and read again from the
   // final origin only when the start page redirected to another website.
   const [startResult, typedSitemap] = await Promise.all([
-    fetchText(start, null),
-    sitemapPages(start),
+    fetchText(start, null, deadline),
+    sitemapPages(start, deadline),
   ]);
   // The crawl is anchored on where the start page landed: its origin is the crawl origin,
   // and its path picks the scope. `source` stays the typed URL so saved links keep their ID.
   const anchor = new URL(startResult.url);
   anchor.hash = "";
   anchor.search = "";
-  const sitemap = anchor.origin === start.origin ? typedSitemap : await sitemapPages(anchor);
+  const { pages: sitemap, cutOff: sitemapCutOff } =
+    anchor.origin === start.origin ? typedSitemap : await sitemapPages(anchor, deadline);
   // Links on the start page resolve against the URL it landed on.
   const startPage = startResult.type.includes("text/markdown")
     ? null
@@ -263,14 +324,16 @@ export async function generateLlmsTxt(input: string) {
   // A pool of CONCURRENCY slots: each takes the next queued URL as soon as its fetch
   // finishes, so no slot waits on the slowest page of a batch. `crawled` keeps each page
   // under the URL it was queued as, with only its in-scope links, in document order.
+  // At the deadline, no new fetch starts, and a fetch it cut short counts as unread.
   const crawled = new Map<string, Page | null>();
   async function crawl(href: string) {
     let page: Page | null = null;
     try {
-      const result = await fetchText(new URL(href), anchor.origin);
+      const result = await fetchText(new URL(href), anchor.origin, deadline);
       if (!result.type.includes("text/markdown")) page = parsePage(result.text, result.url);
-    } catch {
-      failed++;
+    } catch (error) {
+      if (error === deadline.reason) unread++;
+      else failed++;
     }
     if (page) page.links = page.links.filter((link) => inScope(new URL(link), prefix));
     crawled.set(href, page);
@@ -282,8 +345,8 @@ export async function generateLlmsTxt(input: string) {
   }
   const inFlight = new Set<Promise<void>>();
   let next = 0;
-  while (next < queue.length || inFlight.size) {
-    while (inFlight.size < CONCURRENCY && next < queue.length) {
+  while ((next < queue.length && !deadline.aborted) || inFlight.size) {
+    while (inFlight.size < CONCURRENCY && next < queue.length && !deadline.aborted) {
       const task: Promise<void> = crawl(queue[next++]).then(() => {
         inFlight.delete(task);
       });
@@ -291,6 +354,8 @@ export async function generateLlmsTxt(input: string) {
     }
     await Promise.race(inFlight);
   }
+  // Queued and never started. The queue holds each in-scope URL once, so this counts pages.
+  unread += queue.length - next;
 
   // Output order doesn't depend on which fetch finished first. It's a breadth-first walk of
   // the recorded links: the start page, the queue's seed (sitemap order, then the start
@@ -328,6 +393,11 @@ export async function generateLlmsTxt(input: string) {
     text: lines.join("\n").trim() + "\n",
     count: pages.length,
     failed,
+    // True when the deadline left pages unread, or stopped the sitemaps before they all loaded.
+    truncated: unread > 0 || sitemapCutOff,
+    unread,
+    // The sitemaps were cut off, so more pages may exist than `unread` counts.
+    unreadIsLowerBound: sitemapCutOff,
     source: start.href,
   };
 }

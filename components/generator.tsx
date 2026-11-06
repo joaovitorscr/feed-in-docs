@@ -9,11 +9,12 @@ import {
   Download,
   Link2,
   RotateCcw,
+  TimerOff,
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
 import { FeedbackForm } from "@/components/feedback-form";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,9 +30,19 @@ import {
 import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { RUN_BUDGET_LABEL } from "@/lib/limits";
 import { cn } from "@/lib/utils";
 
-type Result = { text: string; count: number; failed: number; link: string | null };
+/** POST /api/generate's response. `unread` counts pages found but not read before the time limit. */
+type Result = {
+  text: string;
+  count: number;
+  failed: number;
+  truncated: boolean;
+  unread: number;
+  unreadIsLowerBound: boolean;
+  link: string | null;
+};
 type Phase = "idle" | "loading" | "result";
 type CopyTarget = "link" | "text";
 type CopyFeedback = { target: CopyTarget; ok: boolean };
@@ -68,7 +79,10 @@ function formatElapsed(totalSeconds: number) {
   return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
 }
 
-/** Vercel's own failures are plain text, so these statuses have no JSON error to show. */
+/**
+ * Vercel's own failures are plain text, so these statuses have no JSON error to show. The route
+ * stops its crawl before `maxDuration`, so a 504 means a deploy without it or with a lower cap.
+ */
 function statusMessage(status: number) {
   if (status === 413) return "This site's index is too large. Try a narrower URL.";
   if (status === 504) return "This site took too long to crawl. Try a narrower URL.";
@@ -213,8 +227,8 @@ function IdleStage({
           llms.txt out.
         </h1>
         <p className="max-w-xl type-body-lg text-muted-foreground">
-          Paste a documentation URL. We&apos;ll crawl the site, collect every page, and compose a
-          concise index you can paste straight into your agent&apos;s context.
+          Paste a documentation URL. We&apos;ll crawl the site, collect the pages it can reach, and
+          compose a concise index you can paste straight into your agent&apos;s context.
         </p>
       </div>
 
@@ -249,7 +263,9 @@ function IdleStage({
               </InputGroupAddon>
             </InputGroup>
             <div className="flex flex-wrap items-center justify-center gap-2 text-muted-foreground">
-              <span>No page cap, no account needed. Try:</span>
+              <span>
+                No page cap, no account needed. Crawls stop after {RUN_BUDGET_LABEL}. Try:
+              </span>
               {EXAMPLES.map((example) => (
                 <Button
                   key={example.url}
@@ -332,7 +348,7 @@ function LoadingStage({ url }: { url: string }) {
         <span ref={elapsedRef} className="tabular-nums">
           0s
         </span>{" "}
-        so far. Large sites can take a few minutes.
+        so far. Large sites stop after {RUN_BUDGET_LABEL}.
       </p>
 
       <p aria-live="polite" className="sr-only">
@@ -379,6 +395,28 @@ function MiddleTruncate({
         <span className="flex min-w-0">{label}</span>
       )}
     </p>
+  );
+}
+
+function pages(count: number) {
+  return `${numberFormat.format(count)} ${count === 1 ? "page" : "pages"}`;
+}
+
+/** What a crawl that hit the time limit left out, and how to get the rest. */
+function TruncatedNotice({ result }: { result: Result }) {
+  const unread = `${result.unreadIsLowerBound ? "at least " : ""}${numberFormat.format(result.unread)}`;
+  return (
+    <Alert>
+      <TimerOff />
+      <AlertTitle>Stopped after {RUN_BUDGET_LABEL}.</AlertTitle>
+      <AlertDescription>
+        {pages(result.count)} listed
+        {result.unread > 0
+          ? `, ${unread} more found but not read.`
+          : ", and the sitemaps weren't fully read."}{" "}
+        Try a narrower URL, like one docs section, for the full list.
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -461,7 +499,7 @@ function ResultStage({
         <h2 className="type-headline-lg wrap-anywhere">Your llms.txt is ready</h2>
         <div className="flex flex-wrap justify-center gap-2">
           <CountBadge variant="brand" hint="Pages we read and listed in this llms.txt.">
-            {numberFormat.format(result.count)} {result.count === 1 ? "page" : "pages"} indexed
+            {pages(result.count)} indexed
           </CountBadge>
           {result.failed > 0 && (
             <CountBadge
@@ -479,6 +517,8 @@ function ResultStage({
           className="text-muted-foreground"
         />
       </div>
+
+      {result.truncated && <TruncatedNotice result={result} />}
 
       <CodeBlock className="max-h-96 min-h-72 rounded-2xl bg-background text-xs dark:bg-background">
         {/* aria-live opts out of the stage's status role, which would read the whole file aloud. */}
