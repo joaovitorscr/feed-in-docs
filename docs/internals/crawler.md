@@ -26,6 +26,24 @@ So `/en/getting-started/` with 1 URL becomes `/en/`, while `/en/stable/`, `/en/l
 
 **In scope.** A URL is in scope when its path starts with the scope, or equals the scope without its trailing slash: `/en` is inside `/en/`.
 
+## Older versions
+
+Docs sites often keep a full copy of the docs per release beside the current ones: Docusaurus has `/docs/x` plus `/docs/3.8.1/x`, `/docs/2.x/x`, `/docs/next/x` and 9 more. A crawl lists the current docs once and skips those copies. `versionFilter` in `lib/scope.ts` holds the rule.
+
+- **Which segment.** Only the first path segment after the crawl's scope is checked, with `isNumericVersion` and `isReleaseChannel`. With the scope `/docs/`, `/docs/3.8.1/x` and `/docs/next/x` are version copies, and nested sections like `/docs/api/v1/` are never touched.
+- **When it turns on.** All three must hold:
+  1. at least 2 distinct numeric-version first segments have been seen (`MIN_VERSIONS`); release channels don't count;
+  2. at least 5 in-scope URLs, not counting the start page, have no version first segment (`MIN_UNVERSIONED_URLS`), so a site whose docs all live under `/docs/v2/` and `/docs/v3/` keeps every page;
+  3. the start URL isn't inside a numeric version, either pinned by the scope (`/docs/3.8.1/installation` crawls `/docs/3.8.1/`) or as its own first segment after the scope.
+
+  "Seen" means every in-scope URL the crawl has found: the start page, the sitemaps and every fetched page's links. The counts only grow, so once the filter is on it stays on.
+
+- **What it skips.** In-scope URLs whose first segment is a numeric version or a release channel, except the segment the start URL itself sits in. A start at `/docs/next/x` keeps `next` beside the unversioned pages and skips the numbered copies.
+- **When it's applied.** When the pool would start a URL, so a skipped URL is never fetched. With a sitemap, the filter is usually on before the first page starts. It's applied again when the entries are placed: a version copy fetched before the filter turned on (possible without a sitemap) has no entry, and its links aren't followed. So the result doesn't depend on the order pages answer in.
+- **Counting.** A skipped URL isn't `failed` and isn't `unread`.
+
+A versioned start URL indexes that version: `/docs/3.8.1/installation` gives `/docs/3.8.1/` and nothing else.
+
 ## Published files
 
 The check runs after the start fetch and re-anchoring, before sitemap discovery, and only when `crawl` isn't set.
@@ -66,7 +84,7 @@ A candidate that fails any step, or any network error, is skipped. If neither is
 1. With `crawl: true`, the start page and `/sitemap.xml` on the typed origin are fetched at the same time. Otherwise the start page is fetched, then the published check runs, and the sitemap is read from the anchor's origin only if no published file is used. If the start page fails, the whole run fails. If it landed on another origin, the typed origin's sitemap is discarded and `/sitemap.xml` is read again from the anchor's origin.
 2. Sitemaps are read breadth-first. Each `<sitemap><loc>` on the same origin is queued as a nested sitemap, and each `<url><loc>` on the same origin is kept, with its hash and query removed. A sitemap that fails is skipped, so a site without one still works through links.
 3. The scope is decided, including any widening. The crawl queue is then the in-scope sitemap URLs in sitemap order, followed by the start page's in-scope links.
-4. Pages are fetched by a pool of 8 slots. Each slot takes the next queued URL as soon as its fetch finishes, so no slot waits on the slowest page of a batch. Each fetched page's in-scope links are appended to the queue in document order, and recorded under the URL the page was queued as.
+4. Pages are fetched by a pool of 8 slots. Each slot takes the next queued URL as soon as its fetch finishes, so no slot waits on the slowest page of a batch. It passes over older version copies without fetching them (see Older versions). Each fetched page's in-scope links are appended to the queue in document order, and recorded under the URL the page was queued as.
 5. Each page is parsed once. The same parse gives its title, description, project name, markdown link and links.
 
 **Links** come from every `a[href]`. The hash and query are removed, and only same-origin links are kept. A path ending in `.png`, `.jpg`, `.jpeg`, `.svg`, `.pdf`, `.zip`, `.webp`, `.gif`, `.json` or `.xml` is dropped.
@@ -85,7 +103,7 @@ Each page with a title becomes one line, and the start page comes first. The ord
 2. the in-scope sitemap URLs in sitemap order, then the start page's in-scope links;
 3. each placed page's in-scope links in document order, skipping URLs already placed.
 
-So the same responses always give the same text.
+Older version copies are left out at every step, and their links aren't followed. So the same responses always give the same text.
 
 - **Title:** the first `main h1`, then the first `h1`, then `<title>`, then the last path segment. Colons are removed and the title is cut to 100 characters.
 - **Description:** the meta description, then the first `main p`, then the first `article p`, cut to 180 characters.
@@ -117,7 +135,7 @@ The budgets live in `lib/limits.ts`. `app/api/generate/route.ts` exports `maxDur
 
 - **`mode`** is `"published"` or `"crawled"`. A crawl has `publishedUrl: null` and `filtered: false`, and its `scope` is the folder it crawled, after any widening.
 
-- **`unread`** counts in-scope URLs that were queued but never fetched, plus fetches the deadline cut short. The queue only holds in-scope URLs, each once, so `unread` never counts a duplicate, an out-of-scope URL, or a page in `failed`.
+- **`unread`** counts in-scope URLs that were queued but never fetched, plus fetches the deadline cut short. The queue only holds in-scope URLs, each once, so `unread` never counts a duplicate, an out-of-scope URL, or a page in `failed`. A skipped older version copy isn't counted either.
 - **`unreadIsLowerBound`** is true when the deadline stopped the sitemap walk with sitemaps still unread. Their pages were never found, so more pages may exist than `unread` counts.
 - **`truncated`** is `unread > 0 || unreadIsLowerBound`. A deadline that fires after the last page is read doesn't truncate anything.
 - **Order.** A truncated index uses the same breadth-first order over the pages that were read. A page that wasn't read has no entry, and its links aren't followed.
