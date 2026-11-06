@@ -1,7 +1,14 @@
 /**
- * Time limits for one POST /api/generate request. The route's `maxDuration` is a literal, because
- * Next reads it statically, so keep `RUN_BUDGET_MS + SAVE_BUDGET_MS` at least 5 seconds under it.
+ * Time limits for one POST /api/generate request, and for a background refresh (`lib/refresh.ts`).
+ * The routes' `maxDuration` is a literal, because Next reads it statically, so keep
+ * `RUN_BUDGET_MS + SAVE_BUDGET_MS` at least 5 seconds under it.
  */
+
+/**
+ * `maxDuration` of POST /api/generate and GET /l/[id]/llms.txt, for code that budgets against it.
+ * Change it together with both routes' literal.
+ */
+export const MAX_DURATION_MS = 300_000;
 
 /** How long the crawl may run, from the start of the request. */
 export const RUN_BUDGET_MS = 240_000;
