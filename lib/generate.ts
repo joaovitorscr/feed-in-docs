@@ -123,17 +123,20 @@ async function readText(response: Response, maxBytes: number, url: URL) {
 }
 
 /** What a fetch asks for. Each kind sends its own `Accept` and accepts its own content types. */
-type FetchKind = "page" | "sitemap" | "llms";
+type FetchKind = "page" | "sitemap" | "llms" | "robots";
 
 const ACCEPT: Record<FetchKind, string> = {
   page: "text/html",
   sitemap: "application/xml, text/xml",
   llms: "text/markdown, text/plain",
+  robots: "text/plain",
 };
 
 function acceptsType(kind: FetchKind, type: string) {
-  // A published llms.txt may come as any type but HTML. Its body is checked after reading.
-  if (kind === "llms") return !type.includes("text/html") && !type.includes("application/xhtml");
+  // A published llms.txt or a robots.txt may come as any type but HTML, so a soft-404 page is
+  // rejected. An llms.txt body is checked after reading.
+  if (kind === "llms" || kind === "robots")
+    return !type.includes("text/html") && !type.includes("application/xhtml");
   return (
     type.includes("text/html") ||
     type.includes("text/markdown") ||
@@ -185,10 +188,38 @@ async function fetchText(
   throw new Error("Documentation redirected too many times.");
 }
 
+// The same-origin `Sitemap:` lines of `/robots.txt`, in file order. Keys are matched without
+// case and `#` starts a comment. Only these lines are read: `Disallow` and the rest are ignored.
+// A missing or unreadable robots.txt, or one served as HTML, gives none.
+async function robotsSitemaps(start: URL, deadline: AbortSignal) {
+  const robots = new URL("/robots.txt", start);
+  const { text } = await fetchText(robots, start.origin, deadline, "robots");
+  const sitemaps: string[] = [];
+  for (const line of text.split("\n")) {
+    const match = /^\s*sitemap\s*:\s*([^#\s]+)/i.exec(line);
+    if (!match) continue;
+    try {
+      const url = new URL(match[1], robots);
+      if (url.origin === start.origin) sitemaps.push(url.href);
+    } catch {
+      /* Ignore malformed sitemap lines. */
+    }
+  }
+  return sitemaps;
+}
+
 // Every same-origin page URL in the sitemaps, in sitemap order. The caller filters by scope.
+// The walk starts from robots.txt's sitemaps, then `/sitemap.xml`, each read once.
 // `cutOff` is true when the deadline stopped the walk with sitemaps still unread.
 async function sitemapPages(start: URL, deadline: AbortSignal) {
-  const sitemapQueue = [new URL("/sitemap.xml", start).href];
+  let declared: string[] = [];
+  try {
+    declared = await robotsSitemaps(start, deadline);
+  } catch (error) {
+    if (error === deadline.reason) return { pages: new Set<string>(), cutOff: true };
+    /* Without a robots.txt, `/sitemap.xml` is still tried. */
+  }
+  const sitemapQueue = [...new Set([...declared, new URL("/sitemap.xml", start).href])];
   const seenSitemaps = new Set<string>();
   const pages = new Set<string>();
   let cutOff = false;
