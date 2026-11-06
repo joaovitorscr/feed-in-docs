@@ -82,11 +82,12 @@ A candidate that fails any step, or any network error, is skipped. If neither is
 
 ## Discovery
 
-1. With `crawl: true`, the start page and `/sitemap.xml` on the typed origin are fetched at the same time. Otherwise the start page is fetched, then the published check runs, and the sitemap is read from the anchor's origin only if no published file is used. If the start page fails, the whole run fails. If it landed on another origin, the typed origin's sitemap is discarded and `/sitemap.xml` is read again from the anchor's origin.
-2. Sitemaps are read breadth-first. Each `<sitemap><loc>` on the same origin is queued as a nested sitemap, and each `<url><loc>` on the same origin is kept, with its hash and query removed. A sitemap that fails is skipped, so a site without one still works through links.
-3. The scope is decided, including any widening. The crawl queue is then the in-scope sitemap URLs in sitemap order, followed by the start page's in-scope links.
-4. Pages are fetched by a pool of 8 slots. Each slot takes the next queued URL as soon as its fetch finishes, so no slot waits on the slowest page of a batch. It passes over older version copies without fetching them (see Older versions). Each fetched page's in-scope links are appended to the queue in document order, skipping keys already queued (see Dedupe). They're recorded under the URL the page was queued as, each rewritten to the URL its key is queued under.
-5. Each page is parsed once. The same parse gives its title, description, project name, markdown link and links.
+1. With `crawl: true`, the start page and the typed origin's sitemaps are fetched at the same time. Otherwise the start page is fetched, then the published check runs, and the sitemaps are read from the anchor's origin only if no published file is used. If the start page fails, the whole run fails. If it landed on another origin, the typed origin's sitemaps are discarded and read again from the anchor's origin.
+2. **Sources.** `/robots.txt` is fetched first (`Accept: text/plain`, any type but HTML, up to 1 MB). Only its `Sitemap:` lines are read: the key is matched without case, `#` starts a comment, a relative value resolves against robots.txt, and a sitemap on another origin is ignored. `Disallow` and every other line are ignored. The walk then starts from those sitemaps in file order, then `/sitemap.xml`, with duplicates removed, so `/sitemap.xml` listed in robots.txt keeps robots.txt's position. A missing robots.txt, an error status, or one served as HTML gives no sources, and `/sitemap.xml` is still tried. Drizzle lists its sitemap only in robots.txt.
+3. Sitemaps are read breadth-first, one at a time, from that queue. Each `<sitemap><loc>` on the same origin is queued as a nested sitemap, and each `<url><loc>` on the same origin is kept, with its hash and query removed. A sitemap that fails is skipped, so a site without one still works through links.
+4. The scope is decided, including any widening. The crawl queue is then the in-scope sitemap URLs in sitemap order, followed by the start page's in-scope links.
+5. Pages are fetched by a pool of 8 slots. Each slot takes the next queued URL as soon as its fetch finishes, so no slot waits on the slowest page of a batch. It passes over older version copies without fetching them (see Older versions). Each fetched page's in-scope links are appended to the queue in document order, skipping keys already queued (see Dedupe). They're recorded under the URL the page was queued as, each rewritten to the URL its key is queued under.
+6. Each page is parsed once. The same parse gives its title, description, project name, markdown link and links.
 
 **Links** come from every `a[href]`. The hash and query are removed, and only same-origin links are kept. A path ending in `.png`, `.jpg`, `.jpeg`, `.svg`, `.pdf`, `.zip`, `.webp`, `.gif`, `.json` or `.xml` is dropped.
 
@@ -133,7 +134,7 @@ Older version copies are left out at every step, and their links aren't followed
 The budgets live in `lib/limits.ts`. `app/api/generate/route.ts` exports `maxDuration = 300` as a literal, because Next reads it statically. `RUN_BUDGET_MS + SAVE_BUDGET_MS` (240 s + 20 s) must stay at least 5 s under it, so the route answers before the platform's own timeout returns a 504.
 
 - **Run deadline.** `generateLlmsTxt(input, { budgetMs })` starts a timer when it's called. `budgetMs` defaults to `RUN_BUDGET_MS`, and the route always uses the default. When the timer fires, it aborts one signal with a `DeadlineError`.
-  - Every hop of every fetch, start page and sitemaps included, uses `AbortSignal.any([deadline, AbortSignal.timeout(TIMEOUT_MS)])`. So its timeout is 8 seconds or the time left, whichever is shorter. The signal covers the DNS lookup (raced against it, since `lookup` takes no signal), the request and the body read.
+  - Every hop of every fetch, start page, robots.txt and sitemaps included, uses `AbortSignal.any([deadline, AbortSignal.timeout(TIMEOUT_MS)])`. So its timeout is 8 seconds or the time left, whichever is shorter. The signal covers the DNS lookup (raced against it, since `lookup` takes no signal), the request and the body read.
   - No hop starts after the deadline, and the pool starts no new page.
   - The two timeouts give different errors. A fetch stopped by its own 8 seconds throws a `TimeoutError` and counts in `failed`. A fetch stopped by the deadline throws the deadline's `DeadlineError`, and `crawl` counts it in `unread`.
   - If the deadline stops the start page itself, the run fails with "This website took too long to respond."
@@ -146,7 +147,7 @@ The budgets live in `lib/limits.ts`. `app/api/generate/route.ts` exports `maxDur
 - **`mode`** is `"published"` or `"crawled"`. A crawl has `publishedUrl: null` and `filtered: false`, and its `scope` is the folder it crawled, after any widening.
 
 - **`unread`** counts in-scope URLs that were queued but never fetched, plus fetches the deadline cut short. The queue only holds in-scope URLs, each key once, so `unread` never counts a duplicate (`/docs/x` beside `/docs/x/`), an out-of-scope URL, or a page in `failed`. A skipped older version copy isn't counted either.
-- **`unreadIsLowerBound`** is true when the deadline stopped the sitemap walk with sitemaps still unread. Their pages were never found, so more pages may exist than `unread` counts.
+- **`unreadIsLowerBound`** is true when the deadline stopped the sitemap walk, robots.txt included, with sitemaps still unread. Their pages were never found, so more pages may exist than `unread` counts.
 - **`truncated`** is `unread > 0 || unreadIsLowerBound`. A deadline that fires after the last page is read doesn't truncate anything.
 - **Order.** A truncated index uses the same breadth-first order over the pages that were read. A page that wasn't read has no entry, and its links aren't followed.
 - **Size.** The route measures the JSON response, not the text, against `MAX_RESPONSE_BYTES` (4.4 MB, under Vercel's 4.5 MB limit), and returns a 413 when it's over.
