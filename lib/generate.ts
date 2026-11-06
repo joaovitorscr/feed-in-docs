@@ -4,6 +4,7 @@ import { isIP } from "node:net";
 import { RUN_BUDGET_MS } from "@/lib/limits";
 import { entryInScope, publishedLlmsTxt } from "@/lib/published";
 import { inScope, pageKey, scopePath, versionFilter, widenScope } from "@/lib/scope";
+import { cleanTitle, HEADING_ANCHORS, projectName } from "@/lib/metadata";
 import { escapeMarkdown, truncate } from "@/lib/text";
 
 const MAX_BYTES = 1_000_000;
@@ -46,7 +47,10 @@ function raceSignal<T>(promise: Promise<T>, signal: AbortSignal) {
 
 type Page = {
   title: string;
-  project: string;
+  /** `<head> <title>`, `application-name` and `og:site_name`, read for the project name. */
+  headTitle: string;
+  applicationName: string;
+  siteName: string;
   description: string;
   /** Where the page landed after its redirects. */
   url: URL;
@@ -307,15 +311,20 @@ function clean(text: string) {
 // scope.
 function parsePage(html: string, url: URL): Page {
   const $ = load(html);
-  const title = clean(
-    $("main h1").first().text() ||
-      $("h1").first().text() ||
+  // Read from a copy without its permalink anchors, so the anchors' links are still collected.
+  const heading = (selector: string) =>
+    $(selector).first().clone().find(HEADING_ANCHORS).remove().end().text();
+  const title = cleanTitle(
+    heading("main h1") ||
+      heading("h1") ||
       $("title").first().text() ||
       url.pathname.split("/").at(-1) ||
       url.hostname,
   );
   // Scoped to <head>: `$("title")` also matches the <title> inside every inline SVG.
-  const project = clean($("head > title").first().text().split("|").at(-1) || "") || url.hostname;
+  const headTitle = clean($("head > title").first().text());
+  const applicationName = clean($('meta[name="application-name"]').attr("content") ?? "");
+  const siteName = clean($('meta[property="og:site_name"]').attr("content") ?? "");
   const description = truncate(
     clean(
       $('meta[name="description"]').attr("content") ||
@@ -351,7 +360,16 @@ function parsePage(html: string, url: URL): Page {
       /* Ignore malformed links. */
     }
   });
-  return { title, project, description, url, alternate, links: [...links] };
+  return {
+    title,
+    headTitle,
+    applicationName,
+    siteName,
+    description,
+    url,
+    alternate,
+    links: [...links],
+  };
 }
 
 // Returns a start page too large to read instead of throwing, because the URL it landed on can
@@ -567,8 +585,13 @@ async function crawlSite(input: string, deadline: AbortSignal, crawlOnly: boolea
     entries.push({ page, url });
   }
   if (!entries.length) throw new Error("No documentation pages were found at this URL.");
-  const project = entries[0].page.project;
-  const summary = entries[0].page.description || `Documentation for ${project}.`;
+  const first = entries[0].page;
+  const project = projectName({
+    ...first,
+    hostname: first.url.hostname,
+    nextHeadTitle: entries[1]?.page.headTitle,
+  });
+  const summary = first.description || `Documentation for ${project}.`;
   const lines = [
     `# ${escapeMarkdown(project)}`,
     "",
