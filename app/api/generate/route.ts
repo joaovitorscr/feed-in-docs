@@ -39,7 +39,8 @@ export async function POST(request: Request) {
   }
   try {
     // `crawl: true` skips the site's own llms.txt and reads the pages instead.
-    const { source, ...result } = await generateLlmsTxt(url, { crawl: crawl === true });
+    const asked = crawl === true ? "crawl" : "auto";
+    const { source, ...result } = await generateLlmsTxt(url, { crawl: asked === "crawl" });
     // Measured on the response body, where JSON escaping makes the text longer.
     if (Buffer.byteLength(JSON.stringify({ ...result, link: null })) > MAX_RESPONSE_BYTES) {
       return Response.json(
@@ -47,8 +48,12 @@ export async function POST(request: Request) {
         { status: 413 },
       );
     }
-    // One deadline for every storage call in this request, starting when the crawl ends.
-    const id = await saveLlmsTxt(result.text, source, AbortSignal.timeout(SAVE_BUDGET_MS));
+    // One deadline for every storage call in this request (the text, then its record),
+    // starting when the crawl ends.
+    const id = await saveLlmsTxt(
+      { ...result, source, request: asked },
+      AbortSignal.timeout(SAVE_BUDGET_MS),
+    );
     const link = id ? `${new URL(request.url).origin}/l/${id}/llms.txt` : null;
     return Response.json({ ...result, link });
   } catch (error) {
