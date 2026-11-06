@@ -12,6 +12,7 @@ import {
   PAGE_CHROME,
   projectName,
 } from "@/lib/metadata";
+import { sectionLines } from "@/lib/sections";
 import { escapeMarkdown, truncate } from "@/lib/text";
 
 const MAX_BYTES = 1_000_000;
@@ -626,22 +627,22 @@ async function crawlSite(input: string, deadline: AbortSignal, crawlOnly: boolea
   // The summary keeps the start page's meta description even when it's site-wide.
   const summary = first.description || `Documentation for ${project}.`;
   const descriptions = entryDescriptions(entries.map(({ page }) => page));
-  const lines = [
+  // Each line is written with its own description before grouping, so moving it can't misalign.
+  const lines = entries.map(({ page, url }, index) => {
+    // The colon is removed because `: ` separates the link from its description.
+    const title = escapeMarkdown(truncate(page.title.replace(/\s*:+\s*/g, " "), MAX_TITLE_LENGTH));
+    const description = descriptions[index] ? `: ${escapeMarkdown(descriptions[index])}` : "";
+    return { url: page.url, title, line: `- [${title}](${url})${description}` };
+  });
+  const text = [
     `# ${escapeMarkdown(project)}`,
     "",
     `> ${escapeMarkdown(summary)}`,
     "",
-    "## Documentation",
-    "",
-  ];
-  for (const [index, { page, url }] of entries.entries()) {
-    // The colon is removed because `: ` separates the link from its description.
-    const title = escapeMarkdown(truncate(page.title.replace(/\s*:+\s*/g, " "), MAX_TITLE_LENGTH));
-    const description = descriptions[index] ? `: ${escapeMarkdown(descriptions[index])}` : "";
-    lines.push(`- [${title}](${url})${description}`);
-  }
+    ...sectionLines(lines, prefix),
+  ].join("\n");
   return {
-    text: lines.join("\n").trim() + "\n",
+    text: text.trim() + "\n",
     count: entries.length,
     failed,
     // True when the deadline left pages unread, or the deadline or the file cap stopped the
