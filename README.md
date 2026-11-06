@@ -47,6 +47,10 @@ Copy the link, copy the text, or download it as `llms.txt`:
 
 Each result is saved to a private [Vercel Blob](https://vercel.com/docs/vercel-blob) store and served at `/l/<id>/llms.txt`. Anyone with the link can read the file. The ID comes from the documentation URL you entered, not from where it redirects, so generating the same docs again refreshes the existing link. If the save fails, you still get the text, just no link.
 
+Next to the text, each save writes a small record of how it was made: the URL you entered, whether you asked for `"crawl": true`, whether the result was published or crawled, and when. If only the record fails to save, the link still works. The file is served with a `Last-Modified` header, so you can see how old a link's copy is.
+
+Links saved before records existed have none. They keep working, with the same text, and they refresh only when you generate the same docs again.
+
 ## API
 
 ```sh
@@ -125,4 +129,4 @@ pnpm check:react-doctor
 
 CI runs `lint`, `format:check`, `typecheck`, and `check:react-doctor` on every PR. `pnpm install` also sets up a pre-push hook that runs the same four.
 
-The crawler and the `llms.txt` writer are in `lib/generate.ts`, its scope rules are in `lib/scope.ts`, and link storage is in `lib/links.ts`. `docs/internals/crawler.md` describes the crawler's rules in full. The landing page and its metadata are in `app/page.tsx`, the 404 page is `app/not-found.tsx`, and the interactive tool is `components/generator.tsx`. `app/api/generate/route.ts` is the endpoint, and `app/l/[id]/llms.txt/route.ts` serves saved files.
+The crawler and the `llms.txt` writer are in `lib/generate.ts`, its scope rules are in `lib/scope.ts`, and link storage is in `lib/links.ts`. `docs/internals/crawler.md` describes the crawler's rules in full, and `docs/internals/links.md` describes how links are saved. The landing page and its metadata are in `app/page.tsx`, the 404 page is `app/not-found.tsx`, and the interactive tool is `components/generator.tsx`. `app/api/generate/route.ts` is the endpoint, and `app/l/[id]/llms.txt/route.ts` serves saved files.
