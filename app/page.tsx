@@ -65,8 +65,8 @@ const STEPS = [
     body: "The crawler stays on that site and inside one section, so /en/docs/guides/intro covers /en/docs/.",
   },
   {
-    title: "We crawl the site",
-    body: "It reads /sitemap.xml and any nested sitemaps, then follows links from each page. A site with no sitemap still works through links alone.",
+    title: "We read the site",
+    body: "If the site publishes its own llms.txt, we use that file, limited to your section. Otherwise we crawl: we read /sitemap.xml and any nested sitemaps, then follow links from each page. A site with no sitemap still works through links alone.",
   },
   {
     title: "Take your llms.txt",
