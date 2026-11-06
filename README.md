@@ -22,8 +22,8 @@ Paste a documentation URL and get an [`llms.txt`](https://llmstxt.org) index you
 
 The graphic above is the whole idea. On one side of the line is the site as a person reads it, and on the other is the same site as an agent needs it.
 
-1. **Docs.** The crawler stays on the URL's origin and inside one section. If the path has a `docs` or `documentation` segment, the section ends there, so `/en/docs/guides/intro` covers `/en/docs/`. Otherwise it's the parent directory, so `/guide/intro` covers `/guide/`.
-2. **Crawl.** It reads `/sitemap.xml` and any nested sitemaps, then follows links from each page. A site with no sitemap still works through links alone. A page that can't be read is counted and skipped, but if the URL you entered fails, the whole run fails.
+1. **Docs.** The crawler stays on the URL's origin and inside one section. If the path has a `docs` or `documentation` segment, the section ends there, so `/en/docs/guides/intro` covers `/en/docs/`, and a version right after it is kept, so `/docs/3.8.1/installation` covers `/docs/3.8.1/`. A path without a trailing slash covers its parent directory, so `/guide/intro` covers `/guide/`. A path with one covers itself, so `/guide/` covers `/guide/`. If that page and the sitemap link to fewer than 5 pages inside it, the section widens once to the parent, so `/en/getting-started/` covers `/en/`. It never widens to the whole site or past a version or channel like `3.2`, `stable` or `latest`.
+2. **Crawl.** It reads the page you entered and `/sitemap.xml` with any nested sitemaps, then follows links from each page. A site with no sitemap still works through links alone. A page that can't be read is counted and skipped, but if the URL you entered fails, the whole run fails.
 3. **llms.txt.** Each page becomes one line. The title comes from the first `h1`, then `<title>`. The description comes from the meta description, then the first paragraph, cut to 180 characters. If a page declares a same-origin `<link rel="alternate" type="text/markdown">`, the entry links to that file and not the HTML page.
 
 ## Output
@@ -93,4 +93,4 @@ pnpm check:react-doctor
 
 CI runs `lint`, `format:check`, `typecheck`, and `check:react-doctor` on every PR. `pnpm install` also sets up a pre-push hook that runs the same four.
 
-The crawler and the `llms.txt` writer are in `lib/generate.ts`, and link storage is in `lib/links.ts`. The landing page and its metadata are in `app/page.tsx`, the 404 page is `app/not-found.tsx`, and the interactive tool is `components/generator.tsx`. `app/api/generate/route.ts` is the endpoint, and `app/l/[id]/llms.txt/route.ts` serves saved files.
+The crawler and the `llms.txt` writer are in `lib/generate.ts`, its scope rules are in `lib/scope.ts`, and link storage is in `lib/links.ts`. `docs/internals/crawler.md` describes the crawler's rules in full. The landing page and its metadata are in `app/page.tsx`, the 404 page is `app/not-found.tsx`, and the interactive tool is `components/generator.tsx`. `app/api/generate/route.ts` is the endpoint, and `app/l/[id]/llms.txt/route.ts` serves saved files.
