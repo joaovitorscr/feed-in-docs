@@ -59,6 +59,27 @@ So the same responses always give the same text.
 
 - 8 requests at a time and 8 seconds per request.
 - Pages up to 1 MB (`MAX_BYTES`) and sitemaps up to 10 MB (`MAX_SITEMAP_BYTES`), counted in bytes. A `content-length` over the limit is rejected before reading. Otherwise `readText` counts bytes as the body streams in and cancels the download once it passes the limit, so a missing or wrong `content-length` can't make the crawler hold an oversized body. Either way the error is "A documentation page is too large."
-- No page cap and no overall deadline.
+- No page cap. The run deadline and the size limits bound the work (see Deadlines).
 - `assertPublicUrl` runs on every hop, including a start-page redirect to another origin. It rejects anything but HTTP and HTTPS, credentials, explicit ports, `localhost`, `.local`, and hosts that resolve to private or reserved addresses.
-- A page that fails after the start page is counted in `failed` and skipped.
+- A page that fails after the start page is counted in `failed` and skipped. A page the run deadline stopped is counted in `unread` instead.
+
+## Deadlines
+
+The budgets live in `lib/limits.ts`. `app/api/generate/route.ts` exports `maxDuration = 300` as a literal, because Next reads it statically. `RUN_BUDGET_MS + SAVE_BUDGET_MS` (240 s + 20 s) must stay at least 5 s under it, so the route answers before the platform's own timeout returns a 504.
+
+- **Run deadline.** `generateLlmsTxt(input, { budgetMs })` starts a timer when it's called. `budgetMs` defaults to `RUN_BUDGET_MS`, and the route always uses the default. When the timer fires, it aborts one signal with a `DeadlineError`.
+  - Every hop of every fetch, start page and sitemaps included, uses `AbortSignal.any([deadline, AbortSignal.timeout(TIMEOUT_MS)])`. So its timeout is 8 seconds or the time left, whichever is shorter. The signal covers the DNS lookup (raced against it, since `lookup` takes no signal), the request and the body read.
+  - No hop starts after the deadline, and the pool starts no new page.
+  - The two timeouts give different errors. A fetch stopped by its own 8 seconds throws a `TimeoutError` and counts in `failed`. A fetch stopped by the deadline throws the deadline's `DeadlineError`, and `crawl` counts it in `unread`.
+  - If the deadline stops the start page itself, the run fails with "This website took too long to respond."
+- **Storage deadline.** `AbortSignal.timeout(SAVE_BUDGET_MS)`, made once when the crawl returns. Every Blob call in the request takes it (today, the text `put`). On a timeout `saveLlmsTxt` returns `null`, and the response has `link: null`.
+
+## Response
+
+`generateLlmsTxt` returns `text`, `count`, `failed`, `truncated`, `unread`, `unreadIsLowerBound` and `source`. The route sends everything but `source`, and adds `link`.
+
+- **`unread`** counts in-scope URLs that were queued but never fetched, plus fetches the deadline cut short. The queue only holds in-scope URLs, each once, so `unread` never counts a duplicate, an out-of-scope URL, or a page in `failed`.
+- **`unreadIsLowerBound`** is true when the deadline stopped the sitemap walk with sitemaps still unread. Their pages were never found, so more pages may exist than `unread` counts.
+- **`truncated`** is `unread > 0 || unreadIsLowerBound`. A deadline that fires after the last page is read doesn't truncate anything.
+- **Order.** A truncated index uses the same breadth-first order over the pages that were read. A page that wasn't read has no entry, and its links aren't followed.
+- **Size.** The route measures the JSON response, not the text, against `MAX_RESPONSE_BYTES` (4.4 MB, under Vercel's 4.5 MB limit), and returns a 413 when it's over.

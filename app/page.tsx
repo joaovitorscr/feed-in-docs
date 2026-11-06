@@ -11,6 +11,7 @@ import {
   CodeBlockTitle,
 } from "@/components/ui/code-block";
 import { Kbd } from "@/components/ui/kbd";
+import { RUN_BUDGET_LABEL } from "@/lib/limits";
 import { AUTHOR_URL, REPO_URL, SITE_DESCRIPTION, SITE_TITLE, SITE_URL } from "@/lib/site";
 
 // Lives here, not in the root layout, because layout metadata also applies to 404 responses.
@@ -78,8 +79,7 @@ const LINK_CLASS = "underline underline-offset-3 hover:text-foreground";
 const QUESTIONS = [
   {
     question: "Is Feed in Docs free?",
-    answer:
-      "Yes. There's no account and no page cap. A very large site can hit the server's time limit, so try a narrower URL if a crawl fails.",
+    answer: `Yes. There's no account and no page cap. A crawl stops after ${RUN_BUDGET_LABEL}, lists the pages it read by then, and says how many more it found. For the full list of a very large site, try a narrower URL, like one docs section.`,
   },
   {
     question: "What's in the file?",
@@ -94,7 +94,7 @@ const QUESTIONS = [
   {
     question: "Why did it find so few pages?",
     answer:
-      "The crawler doesn't run JavaScript. A site that builds its navigation in the browser and has no sitemap yields few pages. The page count shows what the crawler reached, not the size of the docs.",
+      "The crawler doesn't run JavaScript. A site that builds its navigation in the browser and has no sitemap yields few pages. The page count shows what the crawler read, not the size of the docs.",
   },
   {
     question: "Who can see a saved link?",

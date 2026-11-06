@@ -1,13 +1,22 @@
 import { generateLlmsTxt } from "@/lib/generate";
+import { SAVE_BUDGET_MS } from "@/lib/limits";
 import { saveLlmsTxt } from "@/lib/links";
 
 export const runtime = "nodejs";
 
-/** Just under Vercel's 4.5 MB function response limit, leaving room for the JSON around the text. */
-const MAX_TEXT_BYTES = 4_400_000;
+// A literal, because Next reads it statically. It must stay at least 5 s above
+// RUN_BUDGET_MS + SAVE_BUDGET_MS in lib/limits.ts (240 s + 20 s), so the crawl's own
+// deadline answers before the platform's timeout does.
+export const maxDuration = 300;
+
+/** Just under Vercel's 4.5 MB function response limit, with headroom for the link. */
+const MAX_RESPONSE_BYTES = 4_400_000;
 
 function errorMessage(error: unknown) {
-  if (error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name)) {
+  if (
+    error instanceof Error &&
+    ["TimeoutError", "AbortError", "DeadlineError"].includes(error.name)
+  ) {
     return "This website took too long to respond. Try again in a moment.";
   }
   // undici reports every connection and TLS failure as `TypeError: fetch failed`.
@@ -29,13 +38,15 @@ export async function POST(request: Request) {
   }
   try {
     const { source, ...result } = await generateLlmsTxt(url);
-    if (Buffer.byteLength(result.text) > MAX_TEXT_BYTES) {
+    // Measured on the response body, where JSON escaping makes the text longer.
+    if (Buffer.byteLength(JSON.stringify({ ...result, link: null })) > MAX_RESPONSE_BYTES) {
       return Response.json(
         { error: "This site's index is too large. Try a narrower URL, like one docs section." },
         { status: 413 },
       );
     }
-    const id = await saveLlmsTxt(result.text, source);
+    // One deadline for every storage call in this request, starting when the crawl ends.
+    const id = await saveLlmsTxt(result.text, source, AbortSignal.timeout(SAVE_BUDGET_MS));
     const link = id ? `${new URL(request.url).origin}/l/${id}/llms.txt` : null;
     return Response.json({ ...result, link });
   } catch (error) {
