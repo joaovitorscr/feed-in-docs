@@ -58,7 +58,7 @@ So the same responses always give the same text.
 ## Limits
 
 - 8 requests at a time and 8 seconds per request.
-- Pages up to 1 MB and sitemaps up to 10 MB.
+- Pages up to 1 MB (`MAX_BYTES`) and sitemaps up to 10 MB (`MAX_SITEMAP_BYTES`), counted in bytes. A `content-length` over the limit is rejected before reading. Otherwise `readText` counts bytes as the body streams in and cancels the download once it passes the limit, so a missing or wrong `content-length` can't make the crawler hold an oversized body. Either way the error is "A documentation page is too large."
 - No page cap and no overall deadline.
 - `assertPublicUrl` runs on every hop, including a start-page redirect to another origin. It rejects anything but HTTP and HTTPS, credentials, explicit ports, `localhost`, `.local`, and hosts that resolve to private or reserved addresses.
 - A page that fails after the start page is counted in `failed` and skipped.
