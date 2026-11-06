@@ -38,13 +38,18 @@ The record is a separate blob, not a JSON envelope around the text, so a read st
 - **`generatedAt`** is when the run finished, just before the text `put`.
 - **`textEtag`** is the `etag` the text `put` returned. When it differs from the text blob's current ETag, the record no longer describes the text: either the record write failed after a text write, or a later write replaced the text.
 
+**Comparing ETags.** `put()` and `head()` return a strong ETag (`"bd8b…"`), and `get()` returns the same value marked weak (`W/"bd8b…"`), with or without the CDN. So `textEtag` never equals a read's `blob.etag` with `===`. Compare them with `sameEtag(a, b)` from `lib/links.ts`, which strips a leading `W/` from both. The record keeps the strong ETag, because `ifMatch` needs it.
+
 `scope` and `publishedUrl` are left out. A refresh reruns from `source` and `request` and gets them again.
 
 ## Serving
 
-`readLlmsTxt` makes one `get` for the text and returns its stream, its `blob` (with `etag`) and `uploadedAt`. The route sends `Last-Modified` from `uploadedAt`, so a link shows its true age without a second Blob call. The Blob SDK fills `uploadedAt` from the response's `last-modified` header, and with the time of the read when that header is missing, so `readLlmsTxt` returns `uploadedAt: null` then, and the route sends no `Last-Modified`. The read doesn't touch the record.
+`readLlmsTxt` makes one `get` for the text, with `useCache: false`, and returns its stream, its `blob` (with `etag`) and `uploadedAt`. The route sends `Last-Modified` from `uploadedAt`, so a link shows its true age without a second Blob call. The read doesn't touch the record.
 
-Responses carry `Cache-Control: public, max-age=60, s-maxage=60`, so a CDN hit can be up to a minute old.
+- **Why origin, not the Blob CDN.** The SDK fills `uploadedAt` from the response's `last-modified` header. Through the Blob CDN, that header is when the CDN cached the file, not when it was uploaded, so a cached read reports a link as minutes old however old it is. From origin it equals `head().uploadedAt`. An origin read took 156–186 ms against 22–84 ms through the CDN when measured (5 reads each).
+- **No header.** When `last-modified` is missing, the SDK reports the time of the read, so `readLlmsTxt` returns `uploadedAt: null`, and the route sends no `Last-Modified`.
+
+Responses carry `Cache-Control: public, max-age=60, s-maxage=60`, so the route only reads origin on a cache miss, and a CDN hit can be up to a minute old.
 
 ## Links without a record
 

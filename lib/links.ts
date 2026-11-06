@@ -79,12 +79,23 @@ export async function saveLlmsTxt({ text, ...result }: SavedResult, signal: Abor
 }
 
 /**
- * Reads a saved index. `uploadedAt` is when its text was written, or `null` when storage didn't
- * say (the Blob SDK would otherwise report the time of the read). `blob` carries the `etag`.
+ * Whether two ETags name the same blob version. `put()` and `head()` return a strong ETag, and
+ * `get()` returns the same value marked weak (`W/"…"`), so compare a record's `textEtag` with
+ * a read's `blob.etag` through this, never with `===`.
+ */
+export function sameEtag(a: string, b: string) {
+  return a.replace(/^W\//, "") === b.replace(/^W\//, "");
+}
+
+/**
+ * Reads a saved index from origin storage. The Blob CDN reports when it cached the file as
+ * `last-modified`, so a cached read would lie about the link's age. `uploadedAt` is when its
+ * text was written, or `null` when storage didn't say (the Blob SDK would otherwise report the
+ * time of the read). `blob` carries the `etag`; compare it with `sameEtag`.
  */
 export async function readLlmsTxt(id: string) {
   if (!ID_PATTERN.test(id)) return null;
-  const result = await get(textPath(id), { access: "private" });
+  const result = await get(textPath(id), { access: "private", useCache: false });
   if (result?.statusCode !== 200) return null;
   const { stream, blob, headers } = result;
   return { stream, blob, uploadedAt: headers.has("last-modified") ? blob.uploadedAt : null };
