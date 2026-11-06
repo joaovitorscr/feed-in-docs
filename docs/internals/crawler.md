@@ -4,7 +4,7 @@ How `generateLlmsTxt` in `lib/generate.ts` turns a start URL into an index. The 
 
 ## Scope
 
-The crawl stays on the start URL's origin and inside one folder, the scope. The hash and query are removed from the start URL first. `scopePath` picks the folder with the first rule that matches:
+The crawl stays on one origin and inside one folder, the scope. Both come from the anchor: the URL the start page landed on after its redirects, with its hash and query removed. Only the start page may redirect to another origin, so `docs.readthedocs.io/en/stable/` anchors on `docs.readthedocs.com/platform/stable/`. `source`, and so the saved link's ID, stays the typed URL with its hash and query removed. `scopePath` picks the folder from the anchor's path with the first rule that matches:
 
 1. **`docs` or `documentation` segment** (any case). The scope ends at that segment: `/en/docs/guides/intro` → `/en/docs/`. If the next segment is a numeric version, the scope extends through it: `/docs/3.8.1/installation` → `/docs/3.8.1/`.
 2. **No trailing slash.** The parent folder: `/guide/intro` → `/guide/`.
@@ -26,18 +26,18 @@ So `/en/getting-started/` with 1 URL becomes `/en/`, while `/en/stable/`, `/en/l
 
 ## Discovery
 
-1. The start page and `/sitemap.xml` are fetched at the same time. If the start page fails, the whole run fails.
+1. The start page and `/sitemap.xml` on the typed origin are fetched at the same time. If the start page fails, the whole run fails. If it landed on another origin, that sitemap is discarded and `/sitemap.xml` is read again from the anchor's origin.
 2. Sitemaps are read breadth-first. Each `<sitemap><loc>` on the same origin is queued as a nested sitemap, and each `<url><loc>` on the same origin is kept, with its hash and query removed. A sitemap that fails is skipped, so a site without one still works through links.
 3. The scope is decided, including any widening. The crawl queue is then the in-scope sitemap URLs in sitemap order, followed by the start page's in-scope links.
 4. Pages are fetched in batches of 8. Each fetched page's in-scope links are appended to the queue in document order.
 
 **Links** come from every `a[href]`. The hash and query are removed, and only same-origin links are kept. A path ending in `.png`, `.jpg`, `.jpeg`, `.svg`, `.pdf`, `.zip`, `.webp`, `.gif`, `.json` or `.xml` is dropped.
 
-**Fetches** accept `text/html` and `text/markdown`, and sitemaps also accept XML and `text/plain`. A page served as `text/markdown` is fetched but not listed. Redirects are followed by hand, up to 3, and only on the same origin.
+**Fetches** accept `text/html` and `text/markdown`, and sitemaps also accept XML and `text/plain`. A page served as `text/markdown` is fetched but not listed. Redirects are followed by hand, up to 3. The start page may redirect to another origin; every later fetch, sitemaps included, must stay on the anchor's origin.
 
 ## Dedupe
 
-A URL is queued once, keyed by its exact `href` after the hash and query are removed. There's no other normalization. A page reachable under two URLs, such as with and without a trailing slash, or through a redirect, is listed once per URL.
+A URL is queued once, keyed by its exact `href` after the hash and query are removed. There's no other normalization. The start page is never queued again, under either the typed URL or the anchor. A page reachable under two URLs, such as with and without a trailing slash, or through a redirect, is listed once per URL.
 
 ## Entries
 
@@ -53,5 +53,5 @@ Each page with a title becomes one line, in queue order, and the start page come
 - 8 requests at a time and 8 seconds per request.
 - Pages up to 1 MB and sitemaps up to 10 MB.
 - No page cap and no overall deadline.
-- `assertPublicUrl` runs on every hop. It rejects anything but HTTP and HTTPS, credentials, explicit ports, `localhost`, `.local`, and hosts that resolve to private or reserved addresses.
+- `assertPublicUrl` runs on every hop, including a start-page redirect to another origin. It rejects anything but HTTP and HTTPS, credentials, explicit ports, `localhost`, `.local`, and hosts that resolve to private or reserved addresses.
 - A page that fails after the start page is counted in `failed` and skipped.

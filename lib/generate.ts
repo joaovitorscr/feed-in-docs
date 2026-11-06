@@ -56,11 +56,13 @@ async function assertPublicUrl(url: URL) {
   }
 }
 
-async function fetchText(url: URL, expectedOrigin: string, sitemap = false) {
+// Follows up to 3 redirects by hand, checking every hop. Pass `expectedOrigin: null` only
+// for the start page, which may redirect to another website; every other fetch stays on it.
+async function fetchText(url: URL, expectedOrigin: string | null, sitemap = false) {
   let current = url;
   for (let redirects = 0; redirects < 4; redirects++) {
     await assertPublicUrl(current);
-    if (current.origin !== expectedOrigin)
+    if (expectedOrigin !== null && current.origin !== expectedOrigin)
       throw new Error("Documentation redirected to another website.");
     const response = await fetch(current, {
       redirect: "manual",
@@ -205,10 +207,18 @@ export async function generateLlmsTxt(input: string) {
 
   // The start page is read on its own, next to the sitemap, because together they
   // decide whether a sparse trailing-slash scope widens before the crawl begins.
-  const [startResult, sitemap] = await Promise.all([
-    fetchText(start, start.origin),
+  // The sitemap is read from the typed origin in parallel, and read again from the
+  // final origin only when the start page redirected to another website.
+  const [startResult, typedSitemap] = await Promise.all([
+    fetchText(start, null),
     sitemapPages(start),
   ]);
+  // The crawl is anchored on where the start page landed: its origin is the crawl origin,
+  // and its path picks the scope. `source` stays the typed URL so saved links keep their ID.
+  const anchor = new URL(startResult.url);
+  anchor.hash = "";
+  anchor.search = "";
+  const sitemap = anchor.origin === start.origin ? typedSitemap : await sitemapPages(anchor);
   const startPage = startResult.type.includes("text/markdown")
     ? null
     : {
@@ -217,15 +227,19 @@ export async function generateLlmsTxt(input: string) {
       };
   if (startPage?.title) pages.push(startPage);
   const candidates = [...new Set([...sitemap, ...(startPage?.links ?? [])])];
-  const narrow = scopePath(start);
+  const narrow = scopePath(anchor);
   const found = new Set(
-    [start.href, ...candidates].filter((href) => inScope(new URL(href), narrow)),
+    [anchor.href, ...candidates].filter((href) => inScope(new URL(href), narrow)),
   );
-  const prefix = widenScope(start, found.size);
+  const prefix = widenScope(anchor, found.size);
 
-  const queue = candidates.filter((href) => href !== start.href && inScope(new URL(href), prefix));
-  const scheduled = new Set([start.href, ...queue]);
-  const seen = new Set([start.href]);
+  // The start page is already read, under both the typed URL and the one it landed on.
+  const startHrefs = new Set([start.href, anchor.href]);
+  const queue = candidates.filter(
+    (href) => !startHrefs.has(href) && inScope(new URL(href), prefix),
+  );
+  const scheduled = new Set([...startHrefs, ...queue]);
+  const seen = new Set(startHrefs);
 
   while (queue.length) {
     const batch: string[] = [];
@@ -238,7 +252,7 @@ export async function generateLlmsTxt(input: string) {
     const results = await Promise.all(
       batch.map(async (href) => {
         try {
-          const result = await fetchText(new URL(href), start.origin);
+          const result = await fetchText(new URL(href), anchor.origin);
           if (result.type.includes("text/markdown")) return null;
           const page = parsePage(result.text, result.url);
           return { ...page, outputUrl: markdownUrl(result.text, result.url) };
