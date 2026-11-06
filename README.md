@@ -52,6 +52,10 @@ Next to the text, each save writes a small record of how it was made: the URL yo
 
 Links saved before records existed have none. They keep working, with the same text, and they refresh only when you generate the same docs again.
 
+Saved links refresh themselves in the background when someone reads them after their copy goes stale: after 1 day for a site's own llms.txt, and after 7 days for a crawled index. The read that notices still gets the current copy, and later reads get the new one. A refresh repeats what you asked for, so a `"crawl": true` link stays crawled. The old copy is kept instead when the new one stopped early and the old one didn't, or when it lists fewer than half as many pages. A refresh gets 3 minutes 40 seconds, a little less than a submit's 4 minutes, so a site that needs nearly the full 4 minutes may never refresh in the background.
+
+A link whose refresh fails tries again after 24 hours, and stops after 3 failed attempts. It keeps its last good copy, and `Last-Modified` keeps showing its true age. A link also stops refreshing when its record no longer matches its text, which happens when a save wrote the text but not the record. Generating the same docs again fixes all of these: it replaces the text and the record, and refreshing starts over.
+
 ## API
 
 ```sh

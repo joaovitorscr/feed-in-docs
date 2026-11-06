@@ -1,16 +1,12 @@
-import { generateLlmsTxt } from "@/lib/generate";
 import { SAVE_BUDGET_MS } from "@/lib/limits";
-import { saveLlmsTxt } from "@/lib/links";
+import { generateAndSave } from "@/lib/links";
 
 export const runtime = "nodejs";
 
 // A literal, because Next reads it statically. It must stay at least 5 s above
 // RUN_BUDGET_MS + SAVE_BUDGET_MS in lib/limits.ts (240 s + 20 s), so the crawl's own
-// deadline answers before the platform's timeout does.
+// deadline answers before the platform's timeout does, and equal MAX_DURATION_MS there.
 export const maxDuration = 300;
-
-/** Just under Vercel's 4.5 MB function response limit, with headroom for the link. */
-const MAX_RESPONSE_BYTES = 4_400_000;
 
 function errorMessage(error: unknown) {
   if (
@@ -38,23 +34,22 @@ export async function POST(request: Request) {
     return Response.json({ error: "Enter a valid documentation URL." }, { status: 400 });
   }
   try {
-    // `crawl: true` skips the site's own llms.txt and reads the pages instead.
-    const asked = crawl === true ? "crawl" : "auto";
-    const { source, ...result } = await generateLlmsTxt(url, { crawl: asked === "crawl" });
-    // Measured on the response body, where JSON escaping makes the text longer.
-    if (Buffer.byteLength(JSON.stringify({ ...result, link: null })) > MAX_RESPONSE_BYTES) {
+    // `crawl: true` skips the site's own llms.txt and reads the pages instead. A submit writes
+    // the text and the record unconditionally, so it always wins over a background refresh.
+    const outcome = await generateAndSave(url, crawl === true ? "crawl" : "auto", {
+      // One deadline for every storage call in this request (the text, then its record),
+      // starting when the crawl ends.
+      storage: () => AbortSignal.timeout(SAVE_BUDGET_MS),
+    });
+    // Without conditional writes or a reject rule, the only rejection is the size check.
+    if (outcome.status === "rejected") {
       return Response.json(
         { error: "This site's index is too large. Try a narrower URL, like one docs section." },
         { status: 413 },
       );
     }
-    // One deadline for every storage call in this request (the text, then its record),
-    // starting when the crawl ends.
-    const id = await saveLlmsTxt(
-      { ...result, source, request: asked },
-      AbortSignal.timeout(SAVE_BUDGET_MS),
-    );
-    const link = id ? `${new URL(request.url).origin}/l/${id}/llms.txt` : null;
+    const { source: _, ...result } = outcome.result;
+    const link = outcome.id ? `${new URL(request.url).origin}/l/${outcome.id}/llms.txt` : null;
     return Response.json({ ...result, link });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 400 });
