@@ -62,6 +62,26 @@ async function assertPublicUrl(url: URL) {
   }
 }
 
+// Decodes the body as UTF-8, like `response.text()`, but counts bytes as they arrive and
+// cancels the download once it passes `maxBytes`, whatever `content-length` claimed.
+async function readText(response: Response, maxBytes: number) {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return text + decoder.decode();
+    bytes += value.byteLength;
+    if (bytes > maxBytes) {
+      await reader.cancel();
+      throw new Error("A documentation page is too large.");
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+}
+
 // Follows up to 3 redirects by hand, checking every hop. Pass `expectedOrigin: null` only
 // for the start page, which may redirect to another website; every other fetch stays on it.
 async function fetchText(url: URL, expectedOrigin: string | null, sitemap = false) {
@@ -95,8 +115,7 @@ async function fetchText(url: URL, expectedOrigin: string | null, sitemap = fals
     const maxBytes = sitemap ? MAX_SITEMAP_BYTES : MAX_BYTES;
     const length = Number(response.headers.get("content-length") ?? 0);
     if (length > maxBytes) throw new Error("A documentation page is too large.");
-    const text = await response.text();
-    if (text.length > maxBytes) throw new Error("A documentation page is too large.");
+    const text = await readText(response, maxBytes);
     return { text, type, url: current };
   }
   throw new Error("Documentation redirected too many times.");
