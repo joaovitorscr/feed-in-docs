@@ -11,7 +11,13 @@ const CONCURRENCY = 8;
 const MAX_TITLE_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 180;
 
-type Page = { title: string; project: string; description: string; url: string; links: string[] };
+type Page = {
+  title: string;
+  project: string;
+  description: string;
+  outputUrl: string;
+  links: string[];
+};
 
 function isPrivateIp(address: string) {
   if (address.includes(":")) {
@@ -138,7 +144,9 @@ function clean(text: string) {
   return text.replace(/\s+/g, " ").trim();
 }
 
-// `links` holds every same-origin page link, in document order. The caller filters by scope.
+// One cheerio parse per page. `links` holds every same-origin page link, in document order,
+// and the caller filters them by scope. `outputUrl` is the URL the entry links to: a same-origin
+// `<link rel="alternate" type="text/markdown">` when the page declares one, otherwise `url`.
 function parsePage(html: string, url: URL): Page {
   const $ = load(html);
   const title = clean(
@@ -158,6 +166,16 @@ function parsePage(html: string, url: URL): Page {
     ),
     MAX_DESCRIPTION_LENGTH,
   );
+  let outputUrl = url.href;
+  const alternate = $('link[rel="alternate"][type="text/markdown"]').attr("href");
+  if (alternate) {
+    try {
+      const next = new URL(alternate, url);
+      if (next.origin === url.origin) outputUrl = next.href;
+    } catch {
+      /* Use the HTML URL. */
+    }
+  }
   const links = new Set<string>();
   $("a[href]").each((_, element) => {
     const href = $(element).attr("href");
@@ -175,21 +193,7 @@ function parsePage(html: string, url: URL): Page {
       /* Ignore malformed links. */
     }
   });
-  return { title, project, description, url: url.href, links: [...links] };
-}
-
-function markdownUrl(html: string, url: URL) {
-  const $ = load(html);
-  const alternate = $('link[rel="alternate"][type="text/markdown"]').attr("href");
-  if (alternate) {
-    try {
-      const next = new URL(alternate, url);
-      if (next.origin === url.origin) return next.href;
-    } catch {
-      /* Use the HTML URL. */
-    }
-  }
-  return url.href;
+  return { title, project, description, outputUrl, links: [...links] };
 }
 
 export async function generateLlmsTxt(input: string) {
@@ -202,7 +206,6 @@ export async function generateLlmsTxt(input: string) {
   await assertPublicUrl(start);
   start.hash = "";
   start.search = "";
-  const pages: Array<Page & { outputUrl: string }> = [];
   let failed = 0;
 
   // The start page is read on its own, next to the sitemap, because together they
@@ -219,13 +222,10 @@ export async function generateLlmsTxt(input: string) {
   anchor.hash = "";
   anchor.search = "";
   const sitemap = anchor.origin === start.origin ? typedSitemap : await sitemapPages(anchor);
+  // Links on the start page resolve against the URL it landed on.
   const startPage = startResult.type.includes("text/markdown")
     ? null
-    : {
-        ...parsePage(startResult.text, startResult.url),
-        outputUrl: markdownUrl(startResult.text, startResult.url),
-      };
-  if (startPage?.title) pages.push(startPage);
+    : parsePage(startResult.text, startResult.url);
   const candidates = [...new Set([...sitemap, ...(startPage?.links ?? [])])];
   const narrow = scopePath(anchor);
   const found = new Set(
@@ -238,40 +238,56 @@ export async function generateLlmsTxt(input: string) {
   const queue = candidates.filter(
     (href) => !startHrefs.has(href) && inScope(new URL(href), prefix),
   );
+  const seeds = queue.length;
   const scheduled = new Set([...startHrefs, ...queue]);
-  const seen = new Set(startHrefs);
 
-  while (queue.length) {
-    const batch: string[] = [];
-    while (queue.length && batch.length < CONCURRENCY) {
-      const href = queue.shift()!;
-      if (seen.has(href)) continue;
-      seen.add(href);
-      batch.push(href);
+  // A pool of CONCURRENCY slots: each takes the next queued URL as soon as its fetch
+  // finishes, so no slot waits on the slowest page of a batch. `crawled` keeps each page
+  // under the URL it was queued as, with only its in-scope links, in document order.
+  const crawled = new Map<string, Page | null>();
+  async function crawl(href: string) {
+    let page: Page | null = null;
+    try {
+      const result = await fetchText(new URL(href), anchor.origin);
+      if (!result.type.includes("text/markdown")) page = parsePage(result.text, result.url);
+    } catch {
+      failed++;
     }
-    const results = await Promise.all(
-      batch.map(async (href) => {
-        try {
-          const result = await fetchText(new URL(href), anchor.origin);
-          if (result.type.includes("text/markdown")) return null;
-          const page = parsePage(result.text, result.url);
-          return { ...page, outputUrl: markdownUrl(result.text, result.url) };
-        } catch {
-          failed++;
-          return null;
-        }
-      }),
-    );
-    for (const page of results) {
-      if (!page) continue;
-      if (page.title) pages.push(page);
-      for (const link of page.links) {
-        if (scheduled.has(link) || !inScope(new URL(link), prefix)) continue;
-        scheduled.add(link);
-        queue.push(link);
-      }
+    if (page) page.links = page.links.filter((link) => inScope(new URL(link), prefix));
+    crawled.set(href, page);
+    for (const link of page?.links ?? []) {
+      if (scheduled.has(link)) continue;
+      scheduled.add(link);
+      queue.push(link);
     }
   }
+  const inFlight = new Set<Promise<void>>();
+  let next = 0;
+  while (next < queue.length || inFlight.size) {
+    while (inFlight.size < CONCURRENCY && next < queue.length) {
+      const task: Promise<void> = crawl(queue[next++]).then(() => {
+        inFlight.delete(task);
+      });
+      inFlight.add(task);
+    }
+    await Promise.race(inFlight);
+  }
+
+  // Output order doesn't depend on which fetch finished first. It's a breadth-first walk of
+  // the recorded links: the start page, the queue's seed (sitemap order, then the start
+  // page's links), then each page's links in document order, skipping URLs already placed.
+  const order = queue.slice(0, seeds);
+  const placed = new Set([...startHrefs, ...order]);
+  for (let i = 0; i < order.length; i++) {
+    for (const link of crawled.get(order[i])?.links ?? []) {
+      if (placed.has(link)) continue;
+      placed.add(link);
+      order.push(link);
+    }
+  }
+  const pages = [startPage, ...order.map((href) => crawled.get(href))].filter(
+    (page): page is Page => !!page?.title,
+  );
   if (!pages.length) throw new Error("No documentation pages were found at this URL.");
   const project = pages[0].project;
   const summary = pages[0].description || `Documentation for ${project}.`;
