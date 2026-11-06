@@ -9,6 +9,7 @@ import {
   Download,
   Link2,
   RotateCcw,
+  ScanText,
   TimerOff,
   TriangleAlert,
   type LucideIcon,
@@ -33,7 +34,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { RUN_BUDGET_LABEL } from "@/lib/limits";
 import { cn } from "@/lib/utils";
 
-/** POST /api/generate's response. `unread` counts pages found but not read before the time limit. */
+/**
+ * POST /api/generate's response. `unread` counts pages found but not read before the time limit.
+ * In `published` mode, `text` is the site's own llms.txt at `publishedUrl`, limited to `scope`
+ * when `filtered`, and `count` is its links.
+ */
 type Result = {
   text: string;
   count: number;
@@ -41,6 +46,10 @@ type Result = {
   truncated: boolean;
   unread: number;
   unreadIsLowerBound: boolean;
+  mode: "published" | "crawled";
+  publishedUrl: string | null;
+  filtered: boolean;
+  scope: string;
   link: string | null;
 };
 type Phase = "idle" | "loading" | "result";
@@ -53,12 +62,17 @@ const EXAMPLES = [
   { label: "AI SDK", url: "https://ai-sdk.dev/docs" },
 ];
 
+// The timer only reaches the first two steps, so both are true whether the site's own llms.txt
+// is used or the pages are crawled.
 const LOADING_MESSAGES = [
-  "Reading the sitemap",
-  "Following documentation links",
+  "Checking for an llms.txt and a sitemap",
+  "Reading the documentation",
   "Extracting titles and descriptions",
   "Composing your llms.txt",
 ];
+
+/** A `crawl: true` request skips the llms.txt check, so its first step names only the sitemap. */
+const CRAWL_LOADING_MESSAGES = ["Reading the sitemap", ...LOADING_MESSAGES.slice(1)];
 
 /** The API reports no progress, so the timer stops on the crawl, which takes nearly all the time. */
 const CRAWL_STEP = 1;
@@ -89,13 +103,14 @@ function statusMessage(status: number) {
   return "Could not generate llms.txt. Try again in a moment.";
 }
 
-async function requestLlmsTxt(url: string): Promise<Result> {
+/** Pass `crawl` to skip the site's own llms.txt and read the pages instead. */
+async function requestLlmsTxt(url: string, crawl: boolean): Promise<Result> {
   let response: Response;
   try {
     response = await fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify(crawl ? { url, crawl: true } : { url }),
     });
   } catch {
     throw new Error("Could not reach Feed in Docs. Check your connection and try again.");
@@ -134,25 +149,30 @@ export function Generator() {
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
+  const [crawlRequested, setCrawlRequested] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<CopyFeedback | null>(null);
   const copyTimer = useRef<number>(undefined);
 
-  async function generate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (phase !== "idle") return;
-    // Read from the form, not state: browsers restore this field on refresh before React hydrates.
-    const url = String(new FormData(event.currentTarget).get("url") ?? "");
+  async function run(url: string, crawl: boolean) {
     setError("");
     setCopyFeedback(null);
     setSourceUrl(url);
+    setCrawlRequested(crawl);
     setPhase("loading");
     try {
-      setResult(await requestLlmsTxt(url));
+      setResult(await requestLlmsTxt(url, crawl));
       setPhase("result");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not generate llms.txt.");
       setPhase("idle");
     }
+  }
+
+  function generate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (phase !== "idle") return;
+    // Read from the form, not state: browsers restore this field on refresh before React hydrates.
+    void run(String(new FormData(event.currentTarget).get("url") ?? ""), false);
   }
 
   function reset() {
@@ -192,11 +212,12 @@ export function Generator() {
           onCopy={copy}
           onDownload={download}
           onReset={reset}
+          onCrawl={() => run(sourceUrl, true)}
         />
       ) : phase === "idle" ? (
         <IdleStage defaultUrl={sourceUrl} error={error} onSubmit={generate} />
       ) : (
-        <LoadingStage url={sourceUrl} />
+        <LoadingStage url={sourceUrl} crawl={crawlRequested} />
       )}
     </Card>
   );
@@ -227,8 +248,9 @@ function IdleStage({
           llms.txt out.
         </h1>
         <p className="max-w-xl type-body-lg text-muted-foreground">
-          Paste a documentation URL. We&apos;ll crawl the site, collect the pages it can reach, and
-          compose a concise index you can paste straight into your agent&apos;s context.
+          Paste a documentation URL. We&apos;ll use the site&apos;s own llms.txt if it publishes
+          one, or crawl the site and collect the pages it can reach, and compose a concise index you
+          can paste straight into your agent&apos;s context.
         </p>
       </div>
 
@@ -292,7 +314,9 @@ function IdleStage({
   );
 }
 
-function LoadingStage({ url }: { url: string }) {
+/** `crawl` is true for a request sent with `crawl: true`, which never checks for an llms.txt. */
+function LoadingStage({ url, crawl }: { url: string; crawl: boolean }) {
+  const messages = crawl ? CRAWL_LOADING_MESSAGES : LOADING_MESSAGES;
   const elapsedRef = useRef<HTMLSpanElement>(null);
   const [step, setStep] = useState(0);
 
@@ -319,7 +343,7 @@ function LoadingStage({ url }: { url: string }) {
       </div>
 
       <ItemGroup className="gap-2">
-        {LOADING_MESSAGES.map((message, index) => {
+        {messages.map((message, index) => {
           const active = index === step;
           return (
             <Item
@@ -352,7 +376,7 @@ function LoadingStage({ url }: { url: string }) {
       </p>
 
       <p aria-live="polite" className="sr-only">
-        {LOADING_MESSAGES[step]}
+        {messages[step]}
       </p>
     </CardContent>
   );
@@ -400,6 +424,32 @@ function MiddleTruncate({
 
 function pages(count: number) {
   return `${numberFormat.format(count)} ${count === 1 ? "page" : "pages"}`;
+}
+
+function links(count: number) {
+  return `${numberFormat.format(count)} ${count === 1 ? "link" : "links"}`;
+}
+
+/**
+ * Where a published result came from: the site's llms.txt, and the folder it was limited to.
+ * A scope of `/` names the host instead, since "limited to /" says nothing.
+ */
+function PublishedSource({ result }: { result: Result & { publishedUrl: string } }) {
+  const limit = result.scope === "/" ? new URL(result.publishedUrl).host : result.scope;
+  return (
+    <p className="max-w-full wrap-anywhere text-muted-foreground">
+      From the site&apos;s{" "}
+      <a
+        href={result.publishedUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="underline underline-offset-3 hover:text-foreground"
+      >
+        llms.txt
+      </a>
+      {result.filtered && `, limited to ${limit}`}
+    </p>
+  );
 }
 
 /** What a crawl that hit the time limit left out, and how to get the rest. */
@@ -481,6 +531,7 @@ function ResultStage({
   onCopy,
   onDownload,
   onReset,
+  onCrawl,
 }: {
   result: Result;
   sourceUrl: string;
@@ -488,7 +539,10 @@ function ResultStage({
   onCopy: (target: CopyTarget) => void;
   onDownload: () => void;
   onReset: () => void;
+  /** Resends the URL with `crawl: true`. Offered only on a published result. */
+  onCrawl: () => void;
 }) {
+  const publishedUrl = result.mode === "published" ? result.publishedUrl : null;
   return (
     <CardContent
       role="status"
@@ -498,9 +552,15 @@ function ResultStage({
       <div className="flex min-w-0 flex-col items-center gap-3 text-center">
         <h2 className="type-headline-lg wrap-anywhere">Your llms.txt is ready</h2>
         <div className="flex flex-wrap justify-center gap-2">
-          <CountBadge variant="brand" hint="Pages we read and listed in this llms.txt.">
-            {pages(result.count)} indexed
-          </CountBadge>
+          {publishedUrl ? (
+            <CountBadge variant="brand" hint="Links listed in the site's own llms.txt.">
+              {links(result.count)}
+            </CountBadge>
+          ) : (
+            <CountBadge variant="brand" hint="Pages we read and listed in this llms.txt.">
+              {pages(result.count)} indexed
+            </CountBadge>
+          )}
           {result.failed > 0 && (
             <CountBadge
               variant="secondary"
@@ -510,12 +570,22 @@ function ResultStage({
             </CountBadge>
           )}
         </div>
-        <MiddleTruncate
-          text={sourceUrl}
-          prefix="Indexed from"
-          href={sourceUrl}
-          className="text-muted-foreground"
-        />
+        {publishedUrl ? (
+          <>
+            <PublishedSource result={{ ...result, publishedUrl }} />
+            <Button type="button" variant="secondary" size="sm" onClick={onCrawl}>
+              <ScanText data-icon="inline-start" />
+              Generate from the pages instead
+            </Button>
+          </>
+        ) : (
+          <MiddleTruncate
+            text={sourceUrl}
+            prefix="Indexed from"
+            href={sourceUrl}
+            className="text-muted-foreground"
+          />
+        )}
       </div>
 
       {result.truncated && <TruncatedNotice result={result} />}

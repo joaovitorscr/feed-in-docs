@@ -1,6 +1,8 @@
 # Crawler
 
-How `generateLlmsTxt` in `lib/generate.ts` turns a start URL into an index. The scope rules live in `lib/scope.ts`. Update this file in the same PR that changes a rule.
+How `generateLlmsTxt` in `lib/generate.ts` turns a start URL into an index. The scope rules live in `lib/scope.ts`, and the rules for a site's own llms.txt in `lib/published.ts`. Update this file in the same PR that changes a rule.
+
+A run has two modes. If the site publishes a usable llms.txt, the result is that file, limited to the scope (`mode: "published"`, see Published files). Otherwise the site is crawled (`mode: "crawled"`). `generateLlmsTxt(input, { crawl: true })`, and a POST with `"crawl": true`, skips the published check and always crawls.
 
 ## Scope
 
@@ -24,9 +26,44 @@ So `/en/getting-started/` with 1 URL becomes `/en/`, while `/en/stable/`, `/en/l
 
 **In scope.** A URL is in scope when its path starts with the scope, or equals the scope without its trailing slash: `/en` is inside `/en/`.
 
+## Published files
+
+The check runs after the start fetch and re-anchoring, before sitemap discovery, and only when `crawl` isn't set.
+
+**Candidates.** `{scope}llms.txt`, when the scope isn't `/`, and `/llms.txt`. Both are fetched at once, through `fetchText` with `Accept: text/markdown, text/plain`, so they share the run deadline, the 8-second timeout, the DNS check, the 1 MB limit and the same-origin redirect rule. A scope file that redirects to `/llms.txt` (Supabase) is treated as the root file. The scope's own file wins if it's used; the root file is used otherwise.
+
+**Validation**, in order. Status and headers are checked before any of the body is read:
+
+1. The response is OK. A 404 with an HTML body, like Tailwind's 130 KB page or Hono's `text/plain` 404, is rejected before its body downloads.
+2. The content type isn't HTML (`text/html` or `application/xhtml`).
+3. The first non-whitespace character isn't `<`, which catches a soft 404 that returns 200.
+4. After a BOM or whitespace, the body starts with `# `.
+5. It fits `MAX_BYTES` (1 MB), counted while streaming.
+
+A candidate that fails any step, or any network error, is skipped. If neither is used, the run crawls.
+
+**Entries.** `parseLlmsTxt` reads a list line `- [title](url)`, possibly indented, with anything after the link (usually `: description`). The title may hold one level of brackets (`Joins [SQL]`), and the URL one level of parentheses. `*` bullets and lines like `Title: URL` aren't entries, so ReadTheDocs' root file parses to 0 entries.
+
+- Each URL is resolved against the file's own URL, after redirects.
+- An entry is valid when it's on the file's origin and its path is in scope, or equals the scope root as Markdown, `{scope root}.md` (Vite lists `/guide.md`). This applies to the scope's own file too.
+- Duplicates, compared without the fragment, keep the first entry.
+
+**Verbatim or rebuilt.** `limitLlmsTxt` decides.
+
+- **Verbatim** (`filtered: false`): every entry is valid, absolute, fragment-free and unique, so nothing needs rewriting. The text is the file as served, minus a leading BOM. The served copy lives on our origin, where relative links would break, so a file with any relative link is rebuilt.
+- **Rebuilt** (`filtered: true`): everything else. The text keeps the H1, the first blockquote, each H2 that still has valid entries, and those entries in their original order and indentation, with absolute URLs and no fragments. Entries before the first H2 come first, with no heading. Other prose, H3s and later blockquotes are dropped.
+
+**Widening.** A rebuilt root file with fewer than 5 valid entries is re-filtered against `widenScope(anchor, entries)`, the crawl's own rule. The scope's own file never widens.
+
+**Accepted** when the file is verbatim with at least 1 entry, or rebuilt with at least 5 (`MIN_REBUILT_ENTRIES`). Otherwise the run crawls.
+
+**Result.** `count` is the number of entries, `failed` is 0, `truncated` is `false` and `unread` is 0, because the file is read whole. `publishedUrl` is the file's URL after redirects, and `scope` is the scope it was limited to.
+
+**A start page too large to read.** Re-anchoring only needs the URL the start page landed on, not its body. When the body is over `MAX_BYTES` (Stripe's 1.84 MB home page), the landed URL still anchors the published check. If a file is used, it's returned; if not, the run fails with "A documentation page is too large.", as before. A crawl (`crawl: true`) still fails on it straight away.
+
 ## Discovery
 
-1. The start page and `/sitemap.xml` on the typed origin are fetched at the same time. If the start page fails, the whole run fails. If it landed on another origin, that sitemap is discarded and `/sitemap.xml` is read again from the anchor's origin.
+1. With `crawl: true`, the start page and `/sitemap.xml` on the typed origin are fetched at the same time. Otherwise the start page is fetched, then the published check runs, and the sitemap is read from the anchor's origin only if no published file is used. If the start page fails, the whole run fails. If it landed on another origin, the typed origin's sitemap is discarded and `/sitemap.xml` is read again from the anchor's origin.
 2. Sitemaps are read breadth-first. Each `<sitemap><loc>` on the same origin is queued as a nested sitemap, and each `<url><loc>` on the same origin is kept, with its hash and query removed. A sitemap that fails is skipped, so a site without one still works through links.
 3. The scope is decided, including any widening. The crawl queue is then the in-scope sitemap URLs in sitemap order, followed by the start page's in-scope links.
 4. Pages are fetched by a pool of 8 slots. Each slot takes the next queued URL as soon as its fetch finishes, so no slot waits on the slowest page of a batch. Each fetched page's in-scope links are appended to the queue in document order, and recorded under the URL the page was queued as.
@@ -34,7 +71,7 @@ So `/en/getting-started/` with 1 URL becomes `/en/`, while `/en/stable/`, `/en/l
 
 **Links** come from every `a[href]`. The hash and query are removed, and only same-origin links are kept. A path ending in `.png`, `.jpg`, `.jpeg`, `.svg`, `.pdf`, `.zip`, `.webp`, `.gif`, `.json` or `.xml` is dropped.
 
-**Fetches** accept `text/html` and `text/markdown`, and sitemaps also accept XML and `text/plain`. A page served as `text/markdown` is fetched but not listed. Redirects are followed by hand, up to 3. The start page may redirect to another origin; every later fetch, sitemaps included, must stay on the anchor's origin.
+**Fetches** accept `text/html` and `text/markdown`, and sitemaps also accept XML and `text/plain`. A published llms.txt candidate accepts any type but HTML (see Published files). A page served as `text/markdown` is fetched but not listed. Redirects are followed by hand, up to 3. The start page may redirect to another origin; every later fetch, sitemaps included, must stay on the anchor's origin.
 
 ## Dedupe
 
@@ -76,7 +113,9 @@ The budgets live in `lib/limits.ts`. `app/api/generate/route.ts` exports `maxDur
 
 ## Response
 
-`generateLlmsTxt` returns `text`, `count`, `failed`, `truncated`, `unread`, `unreadIsLowerBound` and `source`. The route sends everything but `source`, and adds `link`.
+`generateLlmsTxt` returns `text`, `count`, `failed`, `truncated`, `unread`, `unreadIsLowerBound`, `mode`, `publishedUrl`, `filtered`, `scope` and `source`. The route sends everything but `source`, and adds `link`.
+
+- **`mode`** is `"published"` or `"crawled"`. A crawl has `publishedUrl: null` and `filtered: false`, and its `scope` is the folder it crawled, after any widening.
 
 - **`unread`** counts in-scope URLs that were queued but never fetched, plus fetches the deadline cut short. The queue only holds in-scope URLs, each once, so `unread` never counts a duplicate, an out-of-scope URL, or a page in `failed`.
 - **`unreadIsLowerBound`** is true when the deadline stopped the sitemap walk with sitemaps still unread. Their pages were never found, so more pages may exist than `unread` counts.
