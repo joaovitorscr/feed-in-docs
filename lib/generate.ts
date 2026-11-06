@@ -1,6 +1,7 @@
 import { load } from "cheerio";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { inScope, scopePath, widenScope } from "@/lib/scope";
 import { escapeMarkdown, truncate } from "@/lib/text";
 
 const MAX_BYTES = 1_000_000;
@@ -93,7 +94,8 @@ async function fetchText(url: URL, expectedOrigin: string, sitemap = false) {
   throw new Error("Documentation redirected too many times.");
 }
 
-async function sitemapPages(start: URL, prefix: string) {
+// Every same-origin page URL in the sitemaps, in sitemap order. The caller filters by scope.
+async function sitemapPages(start: URL) {
   const sitemapQueue = [new URL("/sitemap.xml", start).href];
   const seenSitemaps = new Set<string>();
   const pages = new Set<string>();
@@ -118,7 +120,7 @@ async function sitemapPages(start: URL, prefix: string) {
           const url = new URL($(element).text());
           url.hash = "";
           url.search = "";
-          if (url.origin === start.origin && url.pathname.startsWith(prefix)) pages.add(url.href);
+          if (url.origin === start.origin) pages.add(url.href);
         } catch {
           /* Ignore malformed sitemap entries. */
         }
@@ -134,17 +136,8 @@ function clean(text: string) {
   return text.replace(/\s+/g, " ").trim();
 }
 
-function scopePath(url: URL) {
-  const segments = url.pathname.split("/").filter(Boolean);
-  const docsIndex = segments.findIndex((segment) =>
-    ["docs", "documentation"].includes(segment.toLowerCase()),
-  );
-  if (docsIndex !== -1) return `/${segments.slice(0, docsIndex + 1).join("/")}/`;
-  if (url.pathname.endsWith("/")) return url.pathname;
-  return url.pathname.slice(0, url.pathname.lastIndexOf("/") + 1);
-}
-
-function parsePage(html: string, url: URL, prefix: string): Page {
+// `links` holds every same-origin page link, in document order. The caller filters by scope.
+function parsePage(html: string, url: URL): Page {
   const $ = load(html);
   const title = clean(
     $("main h1").first().text() ||
@@ -173,7 +166,6 @@ function parsePage(html: string, url: URL, prefix: string): Page {
       next.search = "";
       if (
         next.origin === url.origin &&
-        next.pathname.startsWith(prefix) &&
         !/\.(png|jpg|jpeg|svg|pdf|zip|webp|gif|json|xml)$/i.test(next.pathname)
       )
         links.add(next.href);
@@ -208,12 +200,32 @@ export async function generateLlmsTxt(input: string) {
   await assertPublicUrl(start);
   start.hash = "";
   start.search = "";
-  const prefix = scopePath(start);
-  const queue = [start.href, ...(await sitemapPages(start, prefix))];
-  const scheduled = new Set(queue);
-  const seen = new Set<string>();
   const pages: Array<Page & { outputUrl: string }> = [];
   let failed = 0;
+
+  // The start page is read on its own, next to the sitemap, because together they
+  // decide whether a sparse trailing-slash scope widens before the crawl begins.
+  const [startResult, sitemap] = await Promise.all([
+    fetchText(start, start.origin),
+    sitemapPages(start),
+  ]);
+  const startPage = startResult.type.includes("text/markdown")
+    ? null
+    : {
+        ...parsePage(startResult.text, startResult.url),
+        outputUrl: markdownUrl(startResult.text, startResult.url),
+      };
+  if (startPage?.title) pages.push(startPage);
+  const candidates = [...new Set([...sitemap, ...(startPage?.links ?? [])])];
+  const narrow = scopePath(start);
+  const found = new Set(
+    [start.href, ...candidates].filter((href) => inScope(new URL(href), narrow)),
+  );
+  const prefix = widenScope(start, found.size);
+
+  const queue = candidates.filter((href) => href !== start.href && inScope(new URL(href), prefix));
+  const scheduled = new Set([start.href, ...queue]);
+  const seen = new Set([start.href]);
 
   while (queue.length) {
     const batch: string[] = [];
@@ -228,10 +240,9 @@ export async function generateLlmsTxt(input: string) {
         try {
           const result = await fetchText(new URL(href), start.origin);
           if (result.type.includes("text/markdown")) return null;
-          const page = parsePage(result.text, result.url, prefix);
+          const page = parsePage(result.text, result.url);
           return { ...page, outputUrl: markdownUrl(result.text, result.url) };
-        } catch (error) {
-          if (href === start.href) throw error;
+        } catch {
           failed++;
           return null;
         }
@@ -241,7 +252,7 @@ export async function generateLlmsTxt(input: string) {
       if (!page) continue;
       if (page.title) pages.push(page);
       for (const link of page.links) {
-        if (scheduled.has(link)) continue;
+        if (scheduled.has(link) || !inScope(new URL(link), prefix)) continue;
         scheduled.add(link);
         queue.push(link);
       }
