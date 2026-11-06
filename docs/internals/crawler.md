@@ -168,7 +168,8 @@ The budgets live in `lib/limits.ts`. `app/api/generate/route.ts` exports `maxDur
   - No hop starts after the deadline, and the pool starts no new page.
   - The two timeouts give different errors. A fetch stopped by its own 8 seconds throws a `TimeoutError` and counts in `failed`. A fetch stopped by the deadline throws the deadline's `DeadlineError`, and `crawl` counts it in `unread`.
   - If the deadline stops the start page itself, the run fails with "This website took too long to respond."
-- **Storage deadline.** `AbortSignal.timeout(SAVE_BUDGET_MS)`, made once when the crawl returns. Every Blob call in the request takes it: the text `put`, then the record `put` (see `links.md`). If the text `put` times out, `saveLlmsTxt` returns `null`, and the response has `link: null`. If only the record `put` does, the response keeps its link.
+- **Storage deadline.** `AbortSignal.timeout(SAVE_BUDGET_MS)`, made once when the crawl returns. Every Blob call in the request takes it: the text `put`, then the record `put` (see `links.md`). If the text `put` times out, `generateAndSave` returns `id: null`, and the response has `link: null`. If only the record `put` does, the response keeps its link.
+- **Background refresh.** A refresh (`lib/refresh.ts`) runs the same crawl in a read's `after()`, with a 220 s run budget and its own storage budgets. See Refresh in `links.md`.
 
 ## Response
 
