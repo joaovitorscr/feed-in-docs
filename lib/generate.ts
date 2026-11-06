@@ -10,6 +10,8 @@ const MAX_BYTES = 1_000_000;
 const MAX_SITEMAP_BYTES = 10_000_000;
 const TIMEOUT_MS = 8_000;
 const CONCURRENCY = 8;
+const SITEMAP_CONCURRENCY = 4;
+const MAX_SITEMAP_FILES = 50;
 const MAX_TITLE_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 180;
 
@@ -208,9 +210,49 @@ async function robotsSitemaps(start: URL, deadline: AbortSignal) {
   return sitemaps;
 }
 
+// One sitemap file's same-origin nested sitemaps and page URLs, each in file order. Page URLs
+// lose their hash and query. A sitemap that fails gives neither; one the deadline stopped gives
+// null.
+async function readSitemap(href: string, start: URL, deadline: AbortSignal) {
+  const children: string[] = [];
+  const pages: string[] = [];
+  try {
+    const { text } = await fetchText(new URL(href), start.origin, deadline, "sitemap");
+    const $ = load(text, { xmlMode: true });
+    $("sitemap > loc").each((_, element) => {
+      try {
+        const url = new URL($(element).text());
+        if (url.origin === start.origin) children.push(url.href);
+      } catch {
+        /* Ignore malformed sitemap entries. */
+      }
+    });
+    $("url > loc").each((_, element) => {
+      try {
+        const url = new URL($(element).text());
+        url.hash = "";
+        url.search = "";
+        if (url.origin === start.origin) pages.push(url.href);
+      } catch {
+        /* Ignore malformed sitemap entries. */
+      }
+    });
+  } catch (error) {
+    if (error === deadline.reason) return null;
+    /* Link crawling still works when no sitemap is available. */
+  }
+  return { children, pages };
+}
+
 // Every same-origin page URL in the sitemaps, in sitemap order. The caller filters by scope.
-// The walk starts from robots.txt's sitemaps, then `/sitemap.xml`, each read once.
-// `cutOff` is true when the deadline stopped the walk with sitemaps still unread.
+// robots.txt is read first, alone. The walk then starts from its sitemaps, then `/sitemap.xml`,
+// and goes breadth-first, one level at a time: a level's files load SITEMAP_CONCURRENCY at a
+// time, and the next level is their nested sitemaps in path order, skipping files already read.
+// A file's path is its parent's path plus its index in the parent, so a level built from its
+// parents in order, each parent's children in file order, is already sorted by path. Pages merge
+// in that same order, never by completion order.
+// At most MAX_SITEMAP_FILES files are read, admitted in that order. `cutOff` is true when the
+// deadline or that cap stopped the walk with sitemaps still unread.
 async function sitemapPages(start: URL, deadline: AbortSignal) {
   let declared: string[] = [];
   try {
@@ -219,46 +261,38 @@ async function sitemapPages(start: URL, deadline: AbortSignal) {
     if (error === deadline.reason) return { pages: new Set<string>(), cutOff: true };
     /* Without a robots.txt, `/sitemap.xml` is still tried. */
   }
-  const sitemapQueue = [...new Set([...declared, new URL("/sitemap.xml", start).href])];
-  const seenSitemaps = new Set<string>();
+  const seen = new Set<string>();
   const pages = new Set<string>();
+  let level = [...declared, new URL("/sitemap.xml", start).href];
   let cutOff = false;
-  while (sitemapQueue.length) {
-    const href = sitemapQueue.shift()!;
-    if (seenSitemaps.has(href)) continue;
-    if (deadline.aborted) {
-      cutOff = true;
-      break;
-    }
-    seenSitemaps.add(href);
-    try {
-      const { text } = await fetchText(new URL(href), start.origin, deadline, "sitemap");
-      const $ = load(text, { xmlMode: true });
-      $("sitemap > loc").each((_, element) => {
-        try {
-          const url = new URL($(element).text());
-          if (url.origin === start.origin && !seenSitemaps.has(url.href))
-            sitemapQueue.push(url.href);
-        } catch {
-          /* Ignore malformed sitemap entries. */
-        }
-      });
-      $("url > loc").each((_, element) => {
-        try {
-          const url = new URL($(element).text());
-          url.hash = "";
-          url.search = "";
-          if (url.origin === start.origin) pages.add(url.href);
-        } catch {
-          /* Ignore malformed sitemap entries. */
-        }
-      });
-    } catch (error) {
-      if (error === deadline.reason) {
+  while (level.length && !cutOff) {
+    const admitted: string[] = [];
+    for (const href of level) {
+      if (seen.has(href)) continue;
+      if (seen.size === MAX_SITEMAP_FILES) {
         cutOff = true;
         break;
       }
-      /* Link crawling still works when no sitemap is available. */
+      seen.add(href);
+      admitted.push(href);
+    }
+    // Each result is stored at its file's index, so completion order can't reorder the merge.
+    // A file the deadline stopped, or never started, stays null and stops the walk.
+    const results = admitted.map((): Awaited<ReturnType<typeof readSitemap>> => null);
+    let next = 0;
+    async function lane() {
+      while (next < admitted.length && !deadline.aborted) {
+        const index = next++;
+        results[index] = await readSitemap(admitted[index], start, deadline);
+      }
+    }
+    await Promise.all(Array.from({ length: SITEMAP_CONCURRENCY }, lane));
+    if (results.includes(null)) cutOff = true;
+    level = [];
+    for (const result of results) {
+      if (!result) continue;
+      for (const href of result.pages) pages.add(href);
+      level.push(...result.children);
     }
   }
   return { pages, cutOff };
@@ -553,10 +587,12 @@ async function crawlSite(input: string, deadline: AbortSignal, crawlOnly: boolea
     text: lines.join("\n").trim() + "\n",
     count: entries.length,
     failed,
-    // True when the deadline left pages unread, or stopped the sitemaps before they all loaded.
+    // True when the deadline left pages unread, or the deadline or the file cap stopped the
+    // sitemaps before they all loaded.
     truncated: unread > 0 || sitemapCutOff,
     unread,
-    // The sitemaps were cut off, so more pages may exist than `unread` counts.
+    // The sitemaps were cut off by the deadline or the file cap, so more pages may exist than
+    // `unread` counts.
     unreadIsLowerBound: sitemapCutOff,
     mode: "crawled" as const,
     publishedUrl: null,
