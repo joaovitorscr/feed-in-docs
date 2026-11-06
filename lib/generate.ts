@@ -2,8 +2,8 @@ import { load } from "cheerio";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { RUN_BUDGET_MS } from "@/lib/limits";
-import { publishedLlmsTxt } from "@/lib/published";
-import { inScope, scopePath, versionFilter, widenScope } from "@/lib/scope";
+import { entryInScope, publishedLlmsTxt } from "@/lib/published";
+import { inScope, pageKey, scopePath, versionFilter, widenScope } from "@/lib/scope";
 import { escapeMarkdown, truncate } from "@/lib/text";
 
 const MAX_BYTES = 1_000_000;
@@ -46,7 +46,10 @@ type Page = {
   title: string;
   project: string;
   description: string;
-  outputUrl: string;
+  /** Where the page landed after its redirects. */
+  url: URL;
+  /** A same-origin `<link rel="alternate" type="text/markdown">`, or null. */
+  alternate: URL | null;
   links: string[];
 };
 
@@ -235,8 +238,8 @@ function clean(text: string) {
 }
 
 // One cheerio parse per page. `links` holds every same-origin page link, in document order,
-// and the caller filters them by scope. `outputUrl` is the URL the entry links to: a same-origin
-// `<link rel="alternate" type="text/markdown">` when the page declares one, otherwise `url`.
+// and `alternate` the page's same-origin Markdown alternate; the caller checks both against the
+// scope.
 function parsePage(html: string, url: URL): Page {
   const $ = load(html);
   const title = clean(
@@ -256,12 +259,12 @@ function parsePage(html: string, url: URL): Page {
     ),
     MAX_DESCRIPTION_LENGTH,
   );
-  let outputUrl = url.href;
-  const alternate = $('link[rel="alternate"][type="text/markdown"]').attr("href");
-  if (alternate) {
+  let alternate: URL | null = null;
+  const alternateHref = $('link[rel="alternate"][type="text/markdown"]').attr("href");
+  if (alternateHref) {
     try {
-      const next = new URL(alternate, url);
-      if (next.origin === url.origin) outputUrl = next.href;
+      const next = new URL(alternateHref, url);
+      if (next.origin === url.origin) alternate = next;
     } catch {
       /* Use the HTML URL. */
     }
@@ -283,7 +286,7 @@ function parsePage(html: string, url: URL): Page {
       /* Ignore malformed links. */
     }
   });
-  return { title, project, description, outputUrl, links: [...links] };
+  return { title, project, description, url, alternate, links: [...links] };
 }
 
 // Returns a start page too large to read instead of throwing, because the URL it landed on can
@@ -402,39 +405,52 @@ async function crawlSite(input: string, deadline: AbortSignal, crawlOnly: boolea
 
   // The start page is already read, under both the typed URL and the one it landed on.
   const startHrefs = new Set([start.href, anchor.href]);
-  const queue = candidates.filter(
-    (href) => !startHrefs.has(href) && inScope(new URL(href), prefix),
-  );
-  const seeds = queue.length;
-  const scheduled = new Set([...startHrefs, ...queue]);
   // Older version copies (`/docs/3.0.1/…` beside `/docs/…`) are skipped when the pool would
   // start them, so they're never fetched, and again when the entries are placed, which drops
   // any fetched before the filter turned on. Neither place counts them as unread.
   const versions = versionFilter(anchor, prefix, startHrefs);
-  for (const href of scheduled) versions.see(href);
+  for (const href of startHrefs) versions.see(href);
+  // Each page is queued once, under the first URL found for its key, so `/docs/x`, `/docs/x/`
+  // and `/docs/x/index.html` are one page. `scheduled` maps a key to the URL it's queued under.
+  // The filter sees only that first URL, so its counts are distinct pages.
+  const scheduled = new Map([start, anchor].map((url) => [pageKey(url), url.href]));
+  const queue: string[] = [];
+  function schedule(href: string) {
+    const key = pageKey(new URL(href));
+    const known = scheduled.get(key);
+    if (known) return known;
+    scheduled.set(key, href);
+    versions.see(href);
+    queue.push(href);
+    return href;
+  }
+  for (const href of candidates) if (inScope(new URL(href), prefix)) schedule(href);
+  const seeds = queue.length;
 
   // A pool of CONCURRENCY slots: each takes the next queued URL as soon as its fetch
   // finishes, so no slot waits on the slowest page of a batch. `crawled` keeps each page
-  // under the URL it was queued as, with only its in-scope links, in document order.
+  // under the URL it was queued as, with only its in-scope links, in document order, each
+  // rewritten to the URL its key is queued under.
+  // A page whose redirects land outside the scope, or in an older version copy the filter
+  // skips, is dropped, and its links aren't followed. It isn't counted as failed.
   // At the deadline, no new fetch starts, and a fetch it cut short counts as unread.
   const crawled = new Map<string, Page | null>();
+  const landed = (page: Page | null | undefined) =>
+    page && inScope(page.url, prefix) && !versions.skips(page.url.href) ? page : null;
   async function crawl(href: string) {
     let page: Page | null = null;
     try {
       const result = await fetchText(new URL(href), anchor.origin, deadline);
-      if (!result.type.includes("text/markdown")) page = parsePage(result.text, result.url);
+      if (!result.type.includes("text/markdown")) page = landed(parsePage(result.text, result.url));
     } catch (error) {
       if (error === deadline.reason) unread++;
       else failed++;
     }
-    if (page) page.links = page.links.filter((link) => inScope(new URL(link), prefix));
+    if (page)
+      page.links = [
+        ...new Set(page.links.filter((link) => inScope(new URL(link), prefix)).map(schedule)),
+      ];
     crawled.set(href, page);
-    for (const link of page?.links ?? []) {
-      if (scheduled.has(link)) continue;
-      scheduled.add(link);
-      versions.see(link);
-      queue.push(link);
-    }
   }
   const inFlight = new Set<Promise<void>>();
   let next = 0;
@@ -450,28 +466,44 @@ async function crawlSite(input: string, deadline: AbortSignal, crawlOnly: boolea
     if (!inFlight.size) break;
     await Promise.race(inFlight);
   }
-  // Queued and never started. The queue holds each in-scope URL once, so this counts pages.
+  // Queued and never started. The queue holds each page once, so this counts pages.
   unread += queue.slice(next).filter((href) => !versions.skips(href)).length;
 
   // Output order doesn't depend on which fetch finished first. It's a breadth-first walk of
   // the recorded links: the start page, the queue's seed (sitemap order, then the start
   // page's links), then each page's links in document order, skipping URLs already placed and
-  // older version copies. A skipped page's links aren't followed.
+  // older version copies, by queued URL and by where the page landed. A skipped page's links
+  // aren't followed.
   const order = queue.slice(0, seeds).filter((href) => !versions.skips(href));
   const placed = new Set([...startHrefs, ...order]);
   for (let i = 0; i < order.length; i++) {
-    for (const link of crawled.get(order[i])?.links ?? []) {
+    for (const link of landed(crawled.get(order[i]))?.links ?? []) {
       if (placed.has(link) || versions.skips(link)) continue;
       placed.add(link);
       order.push(link);
     }
   }
-  const pages = [startPage, ...order.map((href) => crawled.get(href))].filter(
-    (page): page is Page => !!page?.title,
-  );
-  if (!pages.length) throw new Error("No documentation pages were found at this URL.");
-  const project = pages[0].project;
-  const summary = pages[0].description || `Documentation for ${project}.`;
+  // Pages that landed on the same key through redirects keep the first one placed. An entry
+  // links the page's Markdown alternate when that's inside the scope, otherwise where the page
+  // landed, and an entry whose link repeats an earlier one's is dropped.
+  const listedKeys = new Set<string>();
+  const listedUrls = new Set<string>();
+  const entries: Array<{ page: Page; url: string }> = [];
+  for (const page of [startPage, ...order.map((href) => landed(crawled.get(href)))]) {
+    if (!page?.title) continue;
+    const key = pageKey(page.url);
+    const url =
+      page.alternate && entryInScope(page.alternate, anchor.origin, prefix)
+        ? page.alternate.href
+        : page.url.href;
+    if (listedKeys.has(key) || listedUrls.has(url)) continue;
+    listedKeys.add(key);
+    listedUrls.add(url);
+    entries.push({ page, url });
+  }
+  if (!entries.length) throw new Error("No documentation pages were found at this URL.");
+  const project = entries[0].page.project;
+  const summary = entries[0].page.description || `Documentation for ${project}.`;
   const lines = [
     `# ${escapeMarkdown(project)}`,
     "",
@@ -480,15 +512,15 @@ async function crawlSite(input: string, deadline: AbortSignal, crawlOnly: boolea
     "## Documentation",
     "",
   ];
-  for (const page of pages) {
+  for (const { page, url } of entries) {
     // The colon is removed because `: ` separates the link from its description.
     const title = escapeMarkdown(truncate(page.title.replace(/\s*:+\s*/g, " "), MAX_TITLE_LENGTH));
     const description = page.description ? `: ${escapeMarkdown(page.description)}` : "";
-    lines.push(`- [${title}](${page.outputUrl})${description}`);
+    lines.push(`- [${title}](${url})${description}`);
   }
   return {
     text: lines.join("\n").trim() + "\n",
-    count: pages.length,
+    count: entries.length,
     failed,
     // True when the deadline left pages unread, or stopped the sitemaps before they all loaded.
     truncated: unread > 0 || sitemapCutOff,
