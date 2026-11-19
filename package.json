@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "oxlint . --deny-warnings",
+    "test:lint": "node --test lint/*.test.ts",
     "format": "oxfmt .",
     "typecheck": "tsc --noEmit",
     "format:check": "oxfmt --check .",

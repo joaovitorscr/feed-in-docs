@@ -5,5 +5,6 @@ set -e
 
 pnpm -s run format:check
 pnpm -s run lint
+pnpm -s run test:lint
 pnpm -s run typecheck
 pnpm -s run check:react-doctor
