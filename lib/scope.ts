@@ -58,3 +58,54 @@ export function widenScope(url: URL, inScopeCount: number) {
 export function inScope(url: URL, scope: string) {
   return url.pathname.startsWith(scope) || url.pathname === scope.slice(0, -1);
 }
+
+/** Distinct numeric-version first segments a crawl must see before older versions are skipped. */
+export const MIN_VERSIONS = 2;
+/** In-scope URLs without a version first segment, besides the start page, needed for the same. */
+export const MIN_UNVERSIONED_URLS = 5;
+
+/**
+ * The first path segment of `url` after `scope` when it's a numeric version or a release channel:
+ * `/docs/3.8.1/installation` in `/docs/` → `3.8.1`. Null otherwise, so `/docs/api/v1/` → null.
+ */
+export function versionSegment(url: URL, scope: string) {
+  if (!url.pathname.startsWith(scope)) return null;
+  const segment = url.pathname.slice(scope.length).split("/")[0];
+  return isNumericVersion(segment) || isReleaseChannel(segment) ? segment : null;
+}
+
+/**
+ * Picks out older version copies of the docs inside `scope`. Pass every in-scope URL the crawl
+ * finds to `see`, the start page's too; `skips(href)` is true for a URL whose first segment after
+ * the scope is a numeric version or a release channel, once all of these hold:
+ *
+ * 1. at least MIN_VERSIONS distinct numeric-version first segments were seen;
+ * 2. at least MIN_UNVERSIONED_URLS URLs, not counting `startHrefs`, have no version first segment;
+ * 3. the anchor isn't inside a numeric version, either pinned by the scope (`/docs/3.8.1/`) or as
+ *    its own first segment.
+ *
+ * The anchor's own first segment is never skipped, so a start at `/docs/next/x` keeps `next`.
+ * The counts only grow, so once `skips` is true for a URL it stays true.
+ */
+export function versionFilter(anchor: URL, scope: string, startHrefs: Set<string>) {
+  const startSegment = versionSegment(anchor, scope);
+  const pinned =
+    scope.split("/").some(isNumericVersion) || (!!startSegment && isNumericVersion(startSegment));
+  const versions = new Set<string>();
+  const unversioned = new Set<string>();
+  const active = () =>
+    !pinned && versions.size >= MIN_VERSIONS && unversioned.size >= MIN_UNVERSIONED_URLS;
+  return {
+    see(href: string) {
+      const segment = versionSegment(new URL(href), scope);
+      if (segment === null) {
+        if (!startHrefs.has(href)) unversioned.add(href);
+      } else if (isNumericVersion(segment)) versions.add(segment);
+    },
+    skips(href: string) {
+      if (!active()) return false;
+      const segment = versionSegment(new URL(href), scope);
+      return segment !== null && segment !== startSegment;
+    },
+  };
+}

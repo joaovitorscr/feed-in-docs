@@ -3,7 +3,7 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { RUN_BUDGET_MS } from "@/lib/limits";
 import { publishedLlmsTxt } from "@/lib/published";
-import { inScope, scopePath, widenScope } from "@/lib/scope";
+import { inScope, scopePath, versionFilter, widenScope } from "@/lib/scope";
 import { escapeMarkdown, truncate } from "@/lib/text";
 
 const MAX_BYTES = 1_000_000;
@@ -407,6 +407,11 @@ async function crawlSite(input: string, deadline: AbortSignal, crawlOnly: boolea
   );
   const seeds = queue.length;
   const scheduled = new Set([...startHrefs, ...queue]);
+  // Older version copies (`/docs/3.0.1/…` beside `/docs/…`) are skipped when the pool would
+  // start them, so they're never fetched, and again when the entries are placed, which drops
+  // any fetched before the filter turned on. Neither place counts them as unread.
+  const versions = versionFilter(anchor, prefix, startHrefs);
+  for (const href of scheduled) versions.see(href);
 
   // A pool of CONCURRENCY slots: each takes the next queued URL as soon as its fetch
   // finishes, so no slot waits on the slowest page of a batch. `crawled` keeps each page
@@ -427,31 +432,36 @@ async function crawlSite(input: string, deadline: AbortSignal, crawlOnly: boolea
     for (const link of page?.links ?? []) {
       if (scheduled.has(link)) continue;
       scheduled.add(link);
+      versions.see(link);
       queue.push(link);
     }
   }
   const inFlight = new Set<Promise<void>>();
   let next = 0;
-  while ((next < queue.length && !deadline.aborted) || inFlight.size) {
-    while (inFlight.size < CONCURRENCY && next < queue.length && !deadline.aborted) {
+  for (;;) {
+    while (inFlight.size < CONCURRENCY && !deadline.aborted) {
+      while (next < queue.length && versions.skips(queue[next])) next++;
+      if (next === queue.length) break;
       const task: Promise<void> = crawl(queue[next++]).then(() => {
         inFlight.delete(task);
       });
       inFlight.add(task);
     }
+    if (!inFlight.size) break;
     await Promise.race(inFlight);
   }
   // Queued and never started. The queue holds each in-scope URL once, so this counts pages.
-  unread += queue.length - next;
+  unread += queue.slice(next).filter((href) => !versions.skips(href)).length;
 
   // Output order doesn't depend on which fetch finished first. It's a breadth-first walk of
   // the recorded links: the start page, the queue's seed (sitemap order, then the start
-  // page's links), then each page's links in document order, skipping URLs already placed.
-  const order = queue.slice(0, seeds);
+  // page's links), then each page's links in document order, skipping URLs already placed and
+  // older version copies. A skipped page's links aren't followed.
+  const order = queue.slice(0, seeds).filter((href) => !versions.skips(href));
   const placed = new Set([...startHrefs, ...order]);
   for (let i = 0; i < order.length; i++) {
     for (const link of crawled.get(order[i])?.links ?? []) {
-      if (placed.has(link)) continue;
+      if (placed.has(link) || versions.skips(link)) continue;
       placed.add(link);
       order.push(link);
     }
