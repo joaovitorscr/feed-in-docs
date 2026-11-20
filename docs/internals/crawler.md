@@ -94,7 +94,7 @@ A candidate that fails any step, or any network error, is skipped. If neither is
    - **Not read.** `.xml.gz` sitemaps aren't decompressed: none of the eval sites serves one.
 4. The scope is decided, including any widening. The crawl queue is then the in-scope sitemap URLs in sitemap order, followed by the start page's in-scope links.
 5. Pages are fetched by a pool of 8 slots. Each slot takes the next queued URL as soon as its fetch finishes, so no slot waits on the slowest page of a batch. It passes over older version copies without fetching them (see Older versions). Each fetched page's in-scope links are appended to the queue in document order, skipping keys already queued (see Dedupe). They're recorded under the URL the page was queued as, each rewritten to the URL its key is queued under.
-6. Each page is parsed once. The same parse gives its title, description, project name, markdown link and links.
+6. Each page is parsed once. The same parse gives its title, description, the metadata the project name is read from, markdown link and links.
 
 **Links** come from every `a[href]`. The hash and query are removed, and only same-origin links are kept. A path ending in `.png`, `.jpg`, `.jpeg`, `.svg`, `.pdf`, `.zip`, `.webp`, `.gif`, `.json` or `.xml` is dropped.
 
@@ -123,10 +123,18 @@ Each page with a title becomes one line, and the start page comes first. The ord
 
 Older version copies are left out at every step, and their links aren't followed, judged both by the URL a page was queued as and by where it landed. A page that landed outside the scope is left out the same way. Then a page that landed on a key already placed is dropped, and so is an entry whose link repeats (see Dedupe). So the same responses give the same text, apart from the two-form case in Dedupe.
 
-- **Title:** the first `main h1`, then the first `h1`, then `<title>`, then the last path segment. Colons are removed and the title is cut to 100 characters.
+- **Title:** the first `main h1`, then the first `h1`, then `<title>`, then the last path segment. A heading is read without its permalink anchors (`.headerlink`, `.header-anchor`, `.hash-link`, `.anchor`), whose links are still collected. Then trailing `¶`, zero-width characters and a `#` after whitespace are stripped (so "Learn C#" keeps its `#`). Colons are removed and the title is cut to 100 characters.
 - **Description:** the meta description, then the first `main p`, then the first `article p`, cut to 180 characters.
 - **Link:** a `<link rel="alternate" type="text/markdown">` if the page declares one on the anchor's origin inside the scope, or the scope root as Markdown (`/docs.md`), the same rule as published files. Otherwise the URL the page landed on after its redirects. An alternate outside the scope is ignored.
-- **Project name and summary:** taken from the start page. The project is the last `|`-separated part of `<head> <title>`, falling back to the hostname.
+- **Summary:** the start page's description, or "Documentation for {project}."
+- **Project name:** from the start page (the first entry) and the `<head> <title>` of the next entry in output order. In order (`projectName` in `lib/metadata.ts`):
+  1. `application-name`.
+  2. A segment both titles share. Titles split on `|`, `-`, `–`, `—` and `·` with a space on each side, so `Server-side` stays whole. Only the first and last segment of each are compared, because Hono and Drizzle put the name first and most sites put it last. If both of the start title's match, the last one wins (`Docs | Acme` gives Acme).
+  3. The start title itself, when it has no separator (Next.js's "Next.js Docs", whose next page is titled "devIndicators").
+  4. `og:site_name`. It comes after the titles because Vite's is "vitejs".
+  5. The hostname.
+
+  A generic result (`docs`, `documentation`, `home` or `guide`, ignoring case) becomes "{Site} Docs", where {Site} is the first hostname label that isn't `www`, `docs`, `developer` or `developers`, capitalized: Astro's "Docs" on `docs.astro.build` is "Astro Docs". A published llms.txt keeps its own heading.
 
 ## Limits
 
