@@ -162,7 +162,8 @@ export async function readRecord(id: string, signal: AbortSignal) {
 
 /**
  * An ETag without the weak mark. `put()` and `head()` return a strong ETag, and `get()` returns
- * the same value marked weak (`W/"…"`). `ifMatch` needs the strong form.
+ * the same value, marked weak (`W/"…"`) when the response came compressed. `ifMatch` needs the
+ * strong form.
  */
 function strongEtag(etag: string) {
   return etag.replace(/^W\//, "");
