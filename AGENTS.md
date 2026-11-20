@@ -17,7 +17,7 @@ Run development commands from the repository root
 - Use the smallest proof that the change works.
 - Always lint before commiting.
 - `lint/plugin.ts` turns mistakes this app already made into oxlint rules, each naming the fix it came from. When you fix a bug a code pattern could have caught, add a rule there with the old code as a failing case in `lint/plugin.test.ts` (`pnpm test:lint`).
-- A pre-push hook runs format, lint, typecheck, and React Doctor, and CI runs the same four on every PR. Fix a failure instead of pushing with `--no-verify`.
+- A pre-push hook runs format, lint, the lint rules' tests, typecheck, and React Doctor, and CI runs the same five on every PR. Fix a failure instead of pushing with `--no-verify`.
 - Vercel builds every PR, so CI does not run `next build`.
 
 ## Pull Requests

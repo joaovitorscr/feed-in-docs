@@ -14,6 +14,10 @@ tester.run("no-unbounded-body", rules["no-unbounded-body"], {
     // cheerio and other non-fetch values keep their own `.text()`.
     "const title = $('title').first().text();",
     "const record = await new Response(result.stream).json();",
+    // A `res` in another function is a different variable.
+    "async function a() { const res = await fetch(url, { signal }); return readText(res, MAX_BYTES, url); } async function b(res) { return res.json(); }",
+    // Only the global fetch is a raw network response.
+    "const res = await client.fetch(url); const data = await res.json();",
   ],
   invalid: [
     {
@@ -30,13 +34,22 @@ tester.run("bytes-not-length", rules["bytes-not-length"], {
     "if (Buffer.byteLength(text) > MAX_BYTES) throw error;",
     "const length = Number(response.headers.get('content-length')); if (length > maxBytes) throw error;",
     "if (items.length > MAX_ITEMS) throw error;",
+    // A Uint8Array's or Buffer's length is already bytes.
+    "const chunk = new Uint8Array(5); if (chunk.length > MAX_BYTES) throw error;",
+    "const buffer = Buffer.from(text); if (buffer.length > maxBytes) throw error;",
+    // A value it can't see being made isn't assumed to be a string.
+    "function check(value) { if (value.length > maxBytes) throw error; }",
   ],
   invalid: [
     {
       code: "const text = await response.text(); if (text.length > maxBytes) throw new Error('A documentation page is too large.');",
       errors: 1,
     },
-    { code: "if (MAX_RESPONSE_BYTES <= body.length) reject();", errors: 1 },
+    { code: "if (JSON.stringify(body).length > MAX_RESPONSE_BYTES) reject();", errors: 1 },
+    {
+      code: "const body = `${a}${b}`; if (MAX_RESPONSE_BYTES <= body.length) reject();",
+      errors: 1,
+    },
   ],
 });
 
@@ -83,6 +96,7 @@ tester.run("blob-etags", rules["blob-etags"], {
   valid: [
     "if (!sameEtag(record.textEtag, servedEtag)) return 'record-mismatch';",
     "if (record.textEtag === undefined) return;",
+    "if (etag === void 0) return;",
     "if (typeof etag === 'string') use(etag);",
     "await put(path, text, { ifMatch: lockEtag });",
     "await put(path, text, { ifMatch: strongEtag(result.blob.etag) });",
@@ -103,6 +117,13 @@ tester.run("effect-cleanup", rules["effect-cleanup"], {
     // A cleanup this rule can't read is trusted.
     "useEffect(() => { const unsubscribe = store.on('change', update); return unsubscribe; }, []);",
     "React.useEffect(() => { const timeout = setTimeout(reset, 2000); return () => clearTimeout(timeout); }, [copied]);",
+    // `off(event)` without a handler removes every handler for it.
+    "useEffect(() => { api.on('select', onSelect); return () => { api.off('select'); }; }, [api]);",
+    // A timer inside a handler the effect defines runs later, outside this check.
+    "useEffect(() => { const onScroll = () => { setTimeout(save, 100); }; window.addEventListener('scroll', onScroll); return () => window.removeEventListener('scroll', onScroll); }, []);",
+    // A cleanup that calls a helper may undo anything.
+    "useEffect(() => { api.on('select', onSelect); return () => { teardown(); }; }, [api]);",
+    "useEffect(() => { timer.current = setInterval(tick, 1000); return () => clearInterval(timer.current); }, []);",
   ],
   invalid: [
     {
@@ -113,6 +134,20 @@ tester.run("effect-cleanup", rules["effect-cleanup"], {
     { code: "useEffect(() => { setInterval(tick, 1000); }, []);", errors: 1 },
     {
       code: "useLayoutEffect(() => { window.addEventListener('resize', onResize); return () => window.removeEventListener('scroll', onScroll); }, []);",
+      errors: 1,
+    },
+    {
+      // Each timer is matched by the variable holding its id.
+      code: "useEffect(() => { const a = setInterval(f, 1000); const b = setInterval(g, 1000); return () => clearInterval(a); }, []);",
+      errors: 1,
+    },
+    {
+      // Removing a different handler leaves the first one attached.
+      code: "useEffect(() => { window.addEventListener('resize', a); return () => window.removeEventListener('resize', b); }, []);",
+      errors: 1,
+    },
+    {
+      code: "useEffect(() => { button.addEventListener('click', update, { once: false }); }, []);",
       errors: 1,
     },
   ],
