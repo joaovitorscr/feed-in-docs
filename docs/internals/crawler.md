@@ -1,6 +1,6 @@
 # Crawler
 
-How `generateLlmsTxt` in `lib/generate.ts` turns a start URL into an index. The scope rules live in `lib/scope.ts`, and the rules for a site's own llms.txt in `lib/published.ts`. Update this file in the same PR that changes a rule.
+How `generateLlmsTxt` in `lib/generate.ts` turns a start URL into an index. The scope rules live in `lib/scope.ts`, the rules for a site's own llms.txt in `lib/published.ts`, and the grouping into sections in `lib/sections.ts`. Update this file in the same PR that changes a rule.
 
 A run has two modes. If the site publishes a usable llms.txt, the result is that file, limited to the scope (`mode: "published"`, see Published files). Otherwise the site is crawled (`mode: "crawled"`). `generateLlmsTxt(input, { crawl: true })`, and a POST with `"crawl": true`, skips the published check and always crawls.
 
@@ -115,7 +115,7 @@ Each page is listed once, under a URL inside the scope.
 
 ## Entries
 
-Each page with a title becomes one line, and the start page comes first. The order doesn't depend on which fetch finished first. After the crawl, the entries follow a breadth-first walk of the recorded links:
+Each page with a title becomes one line, and the start page is the first entry. The order doesn't depend on which fetch finished first. After the crawl, the entries follow a breadth-first walk of the recorded links:
 
 1. the start page;
 2. the in-scope sitemap URLs in sitemap order, then the start page's in-scope links;
@@ -129,7 +129,7 @@ Older version copies are left out at every step, and their links aren't followed
   - **Fallback.** A site-wide meta description is replaced by the page's first paragraph, or by none. That's the first `main p`, then the first `article p`, that isn't inside `nav`, `header`, `footer`, `aside` or `[role=navigation]` and is at least 20 characters once whitespace collapses, cut to 180 characters. Paragraphs are skipped by their ancestors, so nothing is removed from the page and links inside the chrome are still collected.
 - **Link:** a `<link rel="alternate" type="text/markdown">` if the page declares one on the anchor's origin inside the scope, or the scope root as Markdown (`/docs.md`), the same rule as published files. Otherwise the URL the page landed on after its redirects. An alternate outside the scope is ignored.
 - **Summary:** the start page's description, even when it's site-wide, or "Documentation for {project}."
-- **Project name:** from the start page (the first entry) and the `<head> <title>` of the next entry in output order. In order (`projectName` in `lib/metadata.ts`):
+- **Project name:** from the start page (the first entry, before grouping into Sections) and the `<head> <title>` of the next entry in output order. In order (`projectName` in `lib/metadata.ts`):
   1. `application-name`.
   2. A segment both titles share. Titles split on `|`, `-`, `–`, `—` and `·` with a space on each side, so `Server-side` stays whole. Only the first and last segment of each are compared, because Hono and Drizzle put the name first and most sites put it last. If both of the start title's match, the last one wins (`Docs | Acme` gives Acme).
   3. The start title itself, when it has no separator (Next.js's "Next.js Docs", whose next page is titled "devIndicators").
@@ -137,6 +137,18 @@ Older version copies are left out at every step, and their links aren't followed
   5. The hostname.
 
   A generic result (`docs`, `documentation`, `home` or `guide`, ignoring case) becomes "{Site} Docs", where {Site} is the first hostname label that isn't `www`, `docs`, `developer` or `developers`, capitalized: Astro's "Docs" on `docs.astro.build` is "Astro Docs". A published llms.txt keeps its own heading.
+
+## Sections
+
+A crawled index is grouped into `## ` sections by the site's folders, after the entries, their order and their descriptions are decided (`sectionLines` in `lib/sections.ts`). Each line is written with its own description first, so grouping moves whole lines and a description can't land on another URL.
+
+- **Groups.** Each entry is grouped by the first path segment, after the crawl's scope, of the URL its page landed on, not its Markdown alternate. With the scope `/docs/`, `/docs/api/routing` and `/docs/api` are in `api`. The scope's root page (`/docs`, `/docs/`, `/docs/index.html`) has no group. `/docs/text.html` and `/docs/text/x` are different segments.
+- **Documentation first.** Root pages and groups of one page go under "## Documentation", in entry order. It's left out when it would be empty.
+- **Sections.** Each group of 2 or more pages (`MIN_SECTION_PAGES`) is a section after Documentation. Sections are ordered by their first entry, and entries keep their order inside each section. So moving single-page groups up changes the order across the whole index, never the order inside a section. The start page comes first unless it's in a section (it then leads its section).
+- **Headings.** A section's heading is its own page's entry title, the page whose path after the scope is just the segment (`/docs/api`, `/docs/api/` or `/docs/api/index.html`), when that page is listed. Otherwise it's the segment in sentence case: hyphens and underscores become spaces, and the first letter is capitalized, so `getting-started` is "Getting started" and `api` is "Api". Titles are used as they are, so Drizzle's own pages give "Drizzle ORM - Guides", and a heading can repeat "Documentation" (Mintlify's `fr` copy).
+- **Fallback.** With fewer than 2 sections (`MIN_SECTIONS`), the index is one flat list under "## Documentation", the layout from before sections. Tailwind (193 of its 219 pages sit at `/docs/<page>`, 26 under `/docs/installation/`), Python and Vite fall back.
+- **No `## Optional`.** Nothing is marked as skippable. That's the site author's call, in a published file.
+- **Published files** keep their own sections: verbatim, or rebuilt with their own H2s (see Published files). They're never regrouped.
 
 ## Limits
 
