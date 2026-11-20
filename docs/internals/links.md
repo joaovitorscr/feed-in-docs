@@ -41,7 +41,7 @@ The record is a separate blob, not a JSON envelope around the text, so a read st
 - **`generatedAt`** is when the run finished, just before the text `put`.
 - **`textEtag`** is the `etag` the text `put` returned. When it differs from the text blob's current ETag, the record no longer describes the text: either the record write failed after a text write, or a later write replaced the text.
 
-**Comparing ETags.** `put()` and `head()` return a strong ETag (`"bd8b…"`), and `get()` returns the same value marked weak (`W/"bd8b…"`), with or without the CDN. So `textEtag` never equals a read's `blob.etag` with `===`. Compare them with `sameEtag(a, b)` from `lib/links.ts`, which strips a leading `W/` from both. The record keeps the strong ETag, because `ifMatch` needs it.
+**Comparing ETags.** `put()` and `head()` return a strong ETag (`"bd8b…"`). `get()` returns the same value, marked weak (`W/"bd8b…"`) when the response came compressed and strong otherwise, with or without the CDN. So `textEtag` may not equal a read's `blob.etag` with `===`. Compare them with `sameEtag(a, b)` from `lib/links.ts`, which strips a leading `W/` from both. The record keeps the strong ETag, because `ifMatch` needs it.
 
 - **`refreshStartedAt`** is set by a refresh's lock, and cleared when the refresh is accepted. A submit writes no `refreshStartedAt`.
 - **`refreshFailures`** counts refresh attempts since the last good copy. A submit and an accepted refresh write `0`. Records saved before refresh existed lack it, which counts as `0`.
