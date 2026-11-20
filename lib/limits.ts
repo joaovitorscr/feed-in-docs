@@ -1,5 +1,6 @@
 /**
- * Time limits for one POST /api/generate request, and for a background refresh (`lib/refresh.ts`).
+ * Limits for one POST /api/generate request, and for a background refresh (`lib/refresh.ts`).
+ * The time limits come first.
  * The routes' `maxDuration` is a literal, because Next reads it statically, so keep
  * `RUN_BUDGET_MS + SAVE_BUDGET_MS` at least 5 seconds under it.
  */
@@ -23,3 +24,6 @@ export const RUN_BUDGET_LABEL =
   RUN_BUDGET_MS < 60_000
     ? `${Math.round(RUN_BUDGET_MS / 1000)} seconds`
     : `${RUN_BUDGET_MINUTES} ${RUN_BUDGET_MINUTES === 1 ? "minute" : "minutes"}`;
+
+/** How many sitemap files one crawl reads, robots.txt not counted. */
+export const MAX_SITEMAP_FILES = 50;

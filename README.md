@@ -74,6 +74,7 @@ The response looks like this:
   "count": 180,
   "failed": 2,
   "truncated": false,
+  "timedOut": false,
   "unread": 0,
   "unreadIsLowerBound": false,
   "mode": "crawled",
@@ -85,12 +86,13 @@ The response looks like this:
 ```
 
 - `text` is the index, and `count` is the pages listed in it, or the links for a published file.
-- `mode` is `"published"` when `text` comes from the site's own llms.txt, and `"crawled"` when the pages were read. A published result has `failed: 0`, `truncated: false` and `unread: 0`.
+- `mode` is `"published"` when `text` comes from the site's own llms.txt, and `"crawled"` when the pages were read. A published result has `failed: 0`, `truncated: false`, `timedOut: false` and `unread: 0`.
 - `publishedUrl` is the llms.txt it came from, after redirects, or `null` for a crawl.
 - `filtered` is `true` when the published file was rebuilt to fit the section, and `false` when it's the file exactly as published. It's always `false` for a crawl.
 - `scope` is the folder the result is limited to, such as `/docs/`, or `/` for the whole site.
 - `failed` is the pages it couldn't read: broken, blocked, too large, or slower than 8 seconds.
 - `truncated` is `true` when the crawl stopped at its 4-minute limit with pages left over, or left sitemaps unread past the 50-file limit. `text` then lists only the pages read before it stopped.
+- `timedOut` is `true` when the 4-minute limit is what stopped it, and `false` when only the 50-file limit did, or nothing did.
 - `unread` is the pages in the section that it found but didn't read before the limit: the ones still queued, plus the ones whose requests the limit cut short. It never counts a page in `failed`, a page outside the section, an older version it skipped, or the same page twice. It's `0` when `truncated` is `false`.
 - `unreadIsLowerBound` is `true` when the limit also stopped it reading the sitemaps, or the site has more than 50 sitemap files, so the site may have more pages than `unread` counts.
 - `link` is the shareable URL, or `null` if the save failed or took longer than 20 seconds.
