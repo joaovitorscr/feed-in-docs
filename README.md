@@ -22,7 +22,7 @@ Paste a documentation URL and get an [`llms.txt`](https://llmstxt.org) index you
 
 The graphic above is the whole idea. On one side of the line is the site as a person reads it, and on the other is the same site as an agent needs it.
 
-1. **Docs.** The crawler stays on the URL's origin and inside one section. If the path has a `docs` or `documentation` segment, the section ends there, so `/en/docs/guides/intro` covers `/en/docs/`, and a version right after it is kept, so `/docs/3.8.1/installation` covers `/docs/3.8.1/`. A path without a trailing slash covers its parent directory, so `/guide/intro` covers `/guide/`. A path with one covers itself, so `/guide/` covers `/guide/`. If that page and the sitemap link to fewer than 5 pages inside it, the section widens once to the parent, so `/en/getting-started/` covers `/en/`. It never widens to the whole site or past a version or channel like `3.2`, `stable` or `latest`.
+1. **Docs.** The crawler stays on one site and inside one section. If the URL you entered redirects to another site, the crawl moves to where it landed, so `docs.readthedocs.io/en/stable/` covers `docs.readthedocs.com/platform/stable/`, and the rules below use that page's path. If the path has a `docs` or `documentation` segment, the section ends there, so `/en/docs/guides/intro` covers `/en/docs/`, and a version right after it is kept, so `/docs/3.8.1/installation` covers `/docs/3.8.1/`. A path without a trailing slash covers its parent directory, so `/guide/intro` covers `/guide/`. A path with one covers itself, so `/guide/` covers `/guide/`. If that page and the sitemap link to fewer than 5 pages inside it, the section widens once to the parent, so `/en/getting-started/` covers `/en/`. It never widens to the whole site or past a version or channel like `3.2`, `stable` or `latest`.
 2. **Crawl.** It reads the page you entered and `/sitemap.xml` with any nested sitemaps, then follows links from each page. A site with no sitemap still works through links alone. A page that can't be read is counted and skipped, but if the URL you entered fails, the whole run fails.
 3. **llms.txt.** Each page becomes one line. The title comes from the first `h1`, then `<title>`. The description comes from the meta description, then the first paragraph, cut to 180 characters. If a page declares a same-origin `<link rel="alternate" type="text/markdown">`, the entry links to that file and not the HTML page.
 
@@ -44,7 +44,7 @@ Copy the link, copy the text, or download it as `llms.txt`:
 
 ## Links
 
-Each result is saved to a private [Vercel Blob](https://vercel.com/docs/vercel-blob) store and served at `/l/<id>/llms.txt`. Anyone with the link can read the file. The ID comes from the documentation URL, so generating the same docs again refreshes the existing link. If the save fails, you still get the text, just no link.
+Each result is saved to a private [Vercel Blob](https://vercel.com/docs/vercel-blob) store and served at `/l/<id>/llms.txt`. Anyone with the link can read the file. The ID comes from the documentation URL you entered, not from where it redirects, so generating the same docs again refreshes the existing link. If the save fails, you still get the text, just no link.
 
 ## API
 
@@ -58,7 +58,7 @@ The response is `{ "text": "...", "count": 180, "failed": 2, "link": "https://..
 
 ## Limits
 
-The crawler makes 8 requests at a time, gives each one 8 seconds, and follows up to 3 same-origin redirects. Pages can be up to 1 MB and sitemaps up to 10 MB.
+The crawler makes 8 requests at a time, gives each one 8 seconds, and follows up to 3 redirects per request. Only the URL you entered may redirect to another site, and every hop is checked. Pages can be up to 1 MB and sitemaps up to 10 MB.
 
 It rejects localhost, private IP addresses, and URLs with an explicit port or credentials. This keeps the server from being pointed at internal hosts, and it means you can't index a docs site running on your own machine.
 
