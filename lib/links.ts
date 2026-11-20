@@ -7,8 +7,11 @@ function blobPath(id: string) {
   return `llms/${id}.txt`;
 }
 
-/** Saves the index under an ID derived from its source, so regenerating refreshes the same link. */
-export async function saveLlmsTxt(text: string, source: string) {
+/**
+ * Saves the index under an ID derived from its source, so regenerating refreshes the same link.
+ * `signal` bounds the upload; when it aborts, the result has no link.
+ */
+export async function saveLlmsTxt(text: string, source: string, signal: AbortSignal) {
   const id = createHash("sha256").update(source).digest("hex").slice(0, 16);
   try {
     await put(blobPath(id), text, {
@@ -17,6 +20,7 @@ export async function saveLlmsTxt(text: string, source: string) {
       allowOverwrite: true,
       cacheControlMaxAge: 60,
       contentType: "text/plain; charset=utf-8",
+      abortSignal: signal,
     });
     return id;
   } catch (error) {

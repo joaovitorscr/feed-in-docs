@@ -15,6 +15,9 @@ export type Scenario = {
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
+/** The fields a crawl that finished inside the time limit returns. */
+const COMPLETE = { truncated: false, unread: 0, unreadIsLowerBound: false };
+
 function llmsTxt(project: string, summary: string, lines: string[]) {
   return [`# ${project}`, "", `> ${summary}`, "", "## Documentation", "", ...lines, ""].join("\n");
 }
@@ -92,14 +95,17 @@ const WORST_SUMMARY = "Documentation for Northwind Platform Docs.";
 
 const LINK = "http://localhost:3000/l/9f8e7d6c5b4a3210/llms.txt";
 
-/** The largest result that fits Vercel's 4.5 MB function response limit, with no page cap. */
+/**
+ * About the largest result under the route's 4.4 MB response limit. There's no page cap: the time
+ * limit and that size limit are what bound a result.
+ */
 const HUGE_COUNT = 10_500;
 
 export const SCENARIOS: Record<string, Scenario> = {
   demo: {
     label: "Demo data",
     url: DEMO_URL,
-    respond: () => json({ text: DEMO_TEXT, count: 4, failed: 0, link: LINK }),
+    respond: () => json({ text: DEMO_TEXT, count: 4, failed: 0, ...COMPLETE, link: LINK }),
   },
   worst: {
     label: "Worst case",
@@ -109,6 +115,7 @@ export const SCENARIOS: Record<string, Scenario> = {
         text: llmsTxt(WORST_PROJECT, WORST_SUMMARY, padTo(1284, WORST_LINES)),
         count: 1284,
         failed: 37,
+        ...COMPLETE,
         link: LINK,
       }),
   },
@@ -122,6 +129,7 @@ export const SCENARIOS: Record<string, Scenario> = {
         ]),
         count: 1,
         failed: 1,
+        ...COMPLETE,
         link: LINK,
       }),
   },
@@ -135,6 +143,7 @@ export const SCENARIOS: Record<string, Scenario> = {
         ]),
         count: 1,
         failed: 1283,
+        ...COMPLETE,
         link: LINK,
       }),
   },
@@ -146,13 +155,42 @@ export const SCENARIOS: Record<string, Scenario> = {
         text: llmsTxt(WORST_PROJECT, WORST_SUMMARY, padTo(HUGE_COUNT, WORST_LINES)),
         count: HUGE_COUNT,
         failed: 412,
+        ...COMPLETE,
+        link: LINK,
+      }),
+  },
+  stopped: {
+    label: "Stopped at limit",
+    url: WORST_URL,
+    respond: () =>
+      json({
+        text: llmsTxt(WORST_PROJECT, WORST_SUMMARY, padTo(1240, WORST_LINES)),
+        count: 1240,
+        failed: 37,
+        truncated: true,
+        unread: 3900,
+        unreadIsLowerBound: false,
+        link: LINK,
+      }),
+  },
+  stoppedInSitemaps: {
+    label: "Stopped in sitemaps",
+    url: WORST_URL,
+    respond: () =>
+      json({
+        text: llmsTxt(WORST_PROJECT, WORST_SUMMARY, WORST_LINES.slice(0, 1)),
+        count: 1,
+        failed: 0,
+        truncated: true,
+        unread: 128_406,
+        unreadIsLowerBound: true,
         link: LINK,
       }),
   },
   nolink: {
     label: "No link",
     url: DEMO_URL,
-    respond: () => json({ text: DEMO_TEXT, count: 4, failed: 0, link: null }),
+    respond: () => json({ text: DEMO_TEXT, count: 4, failed: 0, ...COMPLETE, link: null }),
   },
   loading: {
     label: "Loading",
@@ -162,7 +200,8 @@ export const SCENARIOS: Record<string, Scenario> = {
   timeout: {
     label: "Timeout",
     url: WORST_URL,
-    // What Vercel returns when the crawl outlives the function, which no page cap makes reachable.
+    // What Vercel returns when a function outlives its limit. The route's own deadline answers
+    // first, so only a deploy without `maxDuration`, or with a lower cap, shows this.
     respond: () =>
       new Response(
         "An error occurred with your deployment\n\nFUNCTION_INVOCATION_TIMEOUT\n\niad1::abcde-1234567890\n",
