@@ -18,6 +18,24 @@ const json = (body: unknown, status = 200) => Response.json(body, { status });
 /** The fields a crawl that finished inside the time limit returns. */
 const COMPLETE = { truncated: false, unread: 0, unreadIsLowerBound: false };
 
+/** The fields every crawled result returns, given the folder it stayed inside. */
+const crawled = (scope: string) => ({
+  mode: "crawled",
+  publishedUrl: null,
+  filtered: false,
+  scope,
+});
+
+/** The fields a result built from the site's own llms.txt returns. It has nothing unread. */
+const published = (publishedUrl: string, filtered: boolean, scope: string) => ({
+  failed: 0,
+  ...COMPLETE,
+  mode: "published",
+  publishedUrl,
+  filtered,
+  scope,
+});
+
 function llmsTxt(project: string, summary: string, lines: string[]) {
   return [`# ${project}`, "", `> ${summary}`, "", "## Documentation", "", ...lines, ""].join("\n");
 }
@@ -39,6 +57,7 @@ const DEMO_TEXT = llmsTxt("Acme Docs", "Guides and API reference for Acme.", [
 const WORST_ORIGIN = "https://developer-documentation.northwind-industries-holdings.example.com";
 const WORST_URL = `${WORST_ORIGIN}/en-US/platform/v12/documentation/reference/authentication/service-accounts/rotating-credentials-without-downtime`;
 const WORST_PAGE = `${WORST_ORIGIN}/en-US/platform/v12/documentation`;
+const WORST_SCOPE = "/en-US/platform/v12/documentation/";
 const LONG_DESCRIPTION =
   "Rotate service account credentials without dropping in-flight requests, including the overlap window, the audit log entries it writes, and what happens when a rotation fails partway";
 
@@ -105,7 +124,8 @@ export const SCENARIOS: Record<string, Scenario> = {
   demo: {
     label: "Demo data",
     url: DEMO_URL,
-    respond: () => json({ text: DEMO_TEXT, count: 4, failed: 0, ...COMPLETE, link: LINK }),
+    respond: () =>
+      json({ text: DEMO_TEXT, count: 4, failed: 0, ...COMPLETE, ...crawled("/docs/"), link: LINK }),
   },
   worst: {
     label: "Worst case",
@@ -116,6 +136,7 @@ export const SCENARIOS: Record<string, Scenario> = {
         count: 1284,
         failed: 37,
         ...COMPLETE,
+        ...crawled(WORST_SCOPE),
         link: LINK,
       }),
   },
@@ -130,6 +151,7 @@ export const SCENARIOS: Record<string, Scenario> = {
         count: 1,
         failed: 1,
         ...COMPLETE,
+        ...crawled("/docs/"),
         link: LINK,
       }),
   },
@@ -144,6 +166,7 @@ export const SCENARIOS: Record<string, Scenario> = {
         count: 1,
         failed: 1283,
         ...COMPLETE,
+        ...crawled("/docs/"),
         link: LINK,
       }),
   },
@@ -156,6 +179,7 @@ export const SCENARIOS: Record<string, Scenario> = {
         count: HUGE_COUNT,
         failed: 412,
         ...COMPLETE,
+        ...crawled(WORST_SCOPE),
         link: LINK,
       }),
   },
@@ -170,6 +194,7 @@ export const SCENARIOS: Record<string, Scenario> = {
         truncated: true,
         unread: 3900,
         unreadIsLowerBound: false,
+        ...crawled(WORST_SCOPE),
         link: LINK,
       }),
   },
@@ -184,13 +209,51 @@ export const SCENARIOS: Record<string, Scenario> = {
         truncated: true,
         unread: 128_406,
         unreadIsLowerBound: true,
+        ...crawled(WORST_SCOPE),
+        link: LINK,
+      }),
+  },
+  published: {
+    label: "Published",
+    url: DEMO_URL,
+    respond: () =>
+      json({
+        text: DEMO_TEXT,
+        count: 4,
+        ...published(`${DEMO_URL}/llms.txt`, false, "/docs/"),
+        link: LINK,
+      }),
+  },
+  publishedLimited: {
+    label: "Published, limited",
+    url: WORST_URL,
+    // A rebuilt root file on a scope of `/`: the source line names the long host instead.
+    respond: () =>
+      json({
+        text: llmsTxt(WORST_PROJECT, WORST_SUMMARY, padTo(1284, WORST_LINES)),
+        count: 1284,
+        ...published(`${WORST_ORIGIN}/llms.txt`, true, "/"),
+        link: LINK,
+      }),
+  },
+  publishedOne: {
+    label: "Published, 1 link",
+    url: DEMO_URL,
+    respond: () =>
+      json({
+        text: llmsTxt("Acme Docs", "Guides and API reference for Acme.", [
+          page("Introduction", `${DEMO_URL}/introduction`),
+        ]),
+        count: 1,
+        ...published(`${DEMO_URL}/llms.txt`, false, "/docs/"),
         link: LINK,
       }),
   },
   nolink: {
     label: "No link",
     url: DEMO_URL,
-    respond: () => json({ text: DEMO_TEXT, count: 4, failed: 0, ...COMPLETE, link: null }),
+    respond: () =>
+      json({ text: DEMO_TEXT, count: 4, failed: 0, ...COMPLETE, ...crawled("/docs/"), link: null }),
   },
   loading: {
     label: "Loading",

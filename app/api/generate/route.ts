@@ -28,8 +28,9 @@ function errorMessage(error: unknown) {
 
 export async function POST(request: Request) {
   let url: unknown;
+  let crawl: unknown;
   try {
-    url = (await request.json()).url;
+    ({ url, crawl } = await request.json());
   } catch {
     return Response.json({ error: "Enter a documentation URL." }, { status: 400 });
   }
@@ -37,7 +38,8 @@ export async function POST(request: Request) {
     return Response.json({ error: "Enter a valid documentation URL." }, { status: 400 });
   }
   try {
-    const { source, ...result } = await generateLlmsTxt(url);
+    // `crawl: true` skips the site's own llms.txt and reads the pages instead.
+    const { source, ...result } = await generateLlmsTxt(url, { crawl: crawl === true });
     // Measured on the response body, where JSON escaping makes the text longer.
     if (Buffer.byteLength(JSON.stringify({ ...result, link: null })) > MAX_RESPONSE_BYTES) {
       return Response.json(

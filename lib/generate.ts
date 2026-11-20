@@ -2,6 +2,7 @@ import { load } from "cheerio";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { RUN_BUDGET_MS } from "@/lib/limits";
+import { publishedLlmsTxt } from "@/lib/published";
 import { inScope, scopePath, widenScope } from "@/lib/scope";
 import { escapeMarkdown, truncate } from "@/lib/text";
 
@@ -17,6 +18,17 @@ export class DeadlineError extends Error {
   name = "DeadlineError";
   constructor() {
     super("The crawl ran out of time.");
+  }
+}
+
+/**
+ * A body over its byte limit. `url` is where the fetch landed after its redirects, so a start page
+ * too large to read can still anchor the check for a published llms.txt.
+ */
+class PageTooLargeError extends Error {
+  name = "PageTooLargeError";
+  constructor(readonly url: URL) {
+    super("A documentation page is too large.");
   }
 }
 
@@ -89,7 +101,7 @@ async function assertPublicUrl(url: URL, signal?: AbortSignal) {
 
 // Decodes the body as UTF-8, like `response.text()`, but counts bytes as they arrive and
 // cancels the download once it passes `maxBytes`, whatever `content-length` claimed.
-async function readText(response: Response, maxBytes: number) {
+async function readText(response: Response, maxBytes: number, url: URL) {
   if (!response.body) return "";
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -101,21 +113,41 @@ async function readText(response: Response, maxBytes: number) {
     bytes += value.byteLength;
     if (bytes > maxBytes) {
       await reader.cancel();
-      throw new Error("A documentation page is too large.");
+      throw new PageTooLargeError(url);
     }
     text += decoder.decode(value, { stream: true });
   }
+}
+
+/** What a fetch asks for. Each kind sends its own `Accept` and accepts its own content types. */
+type FetchKind = "page" | "sitemap" | "llms";
+
+const ACCEPT: Record<FetchKind, string> = {
+  page: "text/html",
+  sitemap: "application/xml, text/xml",
+  llms: "text/markdown, text/plain",
+};
+
+function acceptsType(kind: FetchKind, type: string) {
+  // A published llms.txt may come as any type but HTML. Its body is checked after reading.
+  if (kind === "llms") return !type.includes("text/html") && !type.includes("application/xhtml");
+  return (
+    type.includes("text/html") ||
+    type.includes("text/markdown") ||
+    (kind === "sitemap" && (type.includes("xml") || type.includes("text/plain")))
+  );
 }
 
 // Follows up to 3 redirects by hand, checking every hop. Pass `expectedOrigin: null` only
 // for the start page, which may redirect to another website; every other fetch stays on it.
 // Each hop's DNS lookup, request and body read share one signal: the run's `deadline`, or
 // TIMEOUT_MS for that hop, whichever ends first. No hop starts once the deadline has passed.
+// The status and content type are checked before any of the body is read.
 async function fetchText(
   url: URL,
   expectedOrigin: string | null,
   deadline: AbortSignal,
-  sitemap = false,
+  kind: FetchKind = "page",
 ) {
   let current = url;
   for (let redirects = 0; redirects < 4; redirects++) {
@@ -129,7 +161,7 @@ async function fetchText(
       signal,
       headers: {
         "User-Agent": "FeedInDocs/1.0",
-        Accept: sitemap ? "application/xml, text/xml" : "text/html",
+        Accept: ACCEPT[kind],
       },
     });
     if (response.status >= 300 && response.status < 400) {
@@ -140,16 +172,11 @@ async function fetchText(
     }
     if (!response.ok) throw new Error(`Documentation returned HTTP ${response.status}.`);
     const type = response.headers.get("content-type") ?? "";
-    if (
-      !type.includes("text/html") &&
-      !type.includes("text/markdown") &&
-      !(sitemap && (type.includes("xml") || type.includes("text/plain")))
-    )
-      throw new Error("This URL did not return a documentation page.");
-    const maxBytes = sitemap ? MAX_SITEMAP_BYTES : MAX_BYTES;
+    if (!acceptsType(kind, type)) throw new Error("This URL did not return a documentation page.");
+    const maxBytes = kind === "sitemap" ? MAX_SITEMAP_BYTES : MAX_BYTES;
     const length = Number(response.headers.get("content-length") ?? 0);
-    if (length > maxBytes) throw new Error("A documentation page is too large.");
-    const text = await readText(response, maxBytes);
+    if (length > maxBytes) throw new PageTooLargeError(current);
+    const text = await readText(response, maxBytes, current);
     return { text, type, url: current };
   }
   throw new Error("Documentation redirected too many times.");
@@ -171,7 +198,7 @@ async function sitemapPages(start: URL, deadline: AbortSignal) {
     }
     seenSitemaps.add(href);
     try {
-      const { text } = await fetchText(new URL(href), start.origin, deadline, true);
+      const { text } = await fetchText(new URL(href), start.origin, deadline, "sitemap");
       const $ = load(text, { xmlMode: true });
       $("sitemap > loc").each((_, element) => {
         try {
@@ -259,22 +286,59 @@ function parsePage(html: string, url: URL): Page {
   return { title, project, description, outputUrl, links: [...links] };
 }
 
+// Returns a start page too large to read instead of throwing, because the URL it landed on can
+// still find a published llms.txt. Every other error ends the run.
+function keepTooLarge(error: unknown) {
+  if (error instanceof PageTooLargeError) return error;
+  throw error;
+}
+
+// The site's own llms.txt for the docs at `anchor`, limited to the scope, or null when there's
+// none worth using. The scope's file and the root file are fetched at once; the scope's file
+// wins when it's used, and one that redirects to `/llms.txt` counts as the root file.
+async function readPublished(anchor: URL, deadline: AbortSignal) {
+  const scope = scopePath(anchor);
+  const candidates = [
+    ...(scope === "/" ? [] : [new URL(`${scope}llms.txt`, anchor)]),
+    new URL("/llms.txt", anchor),
+  ];
+  const files = await Promise.all(
+    candidates.map((url) => fetchText(url, anchor.origin, deadline, "llms").catch(() => null)),
+  );
+  for (const file of files) {
+    if (!file) continue;
+    const published = publishedLlmsTxt(
+      file.text,
+      file.url,
+      anchor,
+      file.url.pathname === "/llms.txt",
+    );
+    if (published) return { ...published, publishedUrl: file.url.href };
+  }
+  return null;
+}
+
 /**
- * Crawls the docs at `input` and writes the index. The crawl stops `budgetMs` after the call
- * starts: the route always uses RUN_BUDGET_MS, and the eval passes a larger one for slow replays.
- * Then `truncated` is true, and `unread` counts the in-scope pages found but not read.
+ * Writes the index for the docs at `input`. A site that publishes a usable llms.txt gets that
+ * file, limited to the scope (`mode: "published"`); `crawl: true` skips that check, and every
+ * other site is crawled (`mode: "crawled"`). The run stops `budgetMs` after the call starts: the
+ * route always uses RUN_BUDGET_MS, and the eval passes a larger one for slow replays. Then
+ * `truncated` is true, and `unread` counts the in-scope pages found but not read.
  */
-export async function generateLlmsTxt(input: string, { budgetMs = RUN_BUDGET_MS } = {}) {
+export async function generateLlmsTxt(
+  input: string,
+  { budgetMs = RUN_BUDGET_MS, crawl = false } = {},
+) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new DeadlineError()), budgetMs);
   try {
-    return await crawlSite(input, controller.signal);
+    return await crawlSite(input, controller.signal, crawl);
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function crawlSite(input: string, deadline: AbortSignal) {
+async function crawlSite(input: string, deadline: AbortSignal, crawlOnly: boolean) {
   let start: URL;
   try {
     start = new URL(input);
@@ -287,21 +351,44 @@ async function crawlSite(input: string, deadline: AbortSignal) {
   let failed = 0;
   let unread = 0;
 
-  // The start page is read on its own, next to the sitemap, because together they
-  // decide whether a sparse trailing-slash scope widens before the crawl begins.
-  // The sitemap is read from the typed origin in parallel, and read again from the
-  // final origin only when the start page redirected to another website.
-  const [startResult, typedSitemap] = await Promise.all([
-    fetchText(start, null, deadline),
-    sitemapPages(start, deadline),
-  ]);
-  // The crawl is anchored on where the start page landed: its origin is the crawl origin,
+  // The start page is read on its own because, with the sitemap, it decides whether a sparse
+  // trailing-slash scope widens before the crawl begins. With `crawlOnly`, the sitemap is read
+  // from the typed origin in parallel, and read again from the final origin only when the start
+  // page redirected to another website. Otherwise the site's own llms.txt is checked once the
+  // start page lands, and the sitemap is read only when that file isn't used.
+  const [startResult, typedSitemap] = crawlOnly
+    ? await Promise.all([fetchText(start, null, deadline), sitemapPages(start, deadline)])
+    : [await fetchText(start, null, deadline).catch(keepTooLarge), null];
+  // The run is anchored on where the start page landed: its origin is the crawl origin,
   // and its path picks the scope. `source` stays the typed URL so saved links keep their ID.
   const anchor = new URL(startResult.url);
   anchor.hash = "";
   anchor.search = "";
+  if (!crawlOnly) {
+    const published = await readPublished(anchor, deadline);
+    if (published) {
+      // A published file is read whole, so nothing is left unread.
+      return {
+        text: published.text,
+        count: published.count,
+        failed: 0,
+        truncated: false,
+        unread: 0,
+        unreadIsLowerBound: false,
+        mode: "published" as const,
+        publishedUrl: published.publishedUrl,
+        filtered: published.filtered,
+        scope: published.scope,
+        source: start.href,
+      };
+    }
+  }
+  // Only a published file can stand in for a start page too large to read.
+  if (startResult instanceof PageTooLargeError) throw startResult;
   const { pages: sitemap, cutOff: sitemapCutOff } =
-    anchor.origin === start.origin ? typedSitemap : await sitemapPages(anchor, deadline);
+    anchor.origin === start.origin && typedSitemap
+      ? typedSitemap
+      : await sitemapPages(anchor, deadline);
   // Links on the start page resolve against the URL it landed on.
   const startPage = startResult.type.includes("text/markdown")
     ? null
@@ -398,6 +485,10 @@ async function crawlSite(input: string, deadline: AbortSignal) {
     unread,
     // The sitemaps were cut off, so more pages may exist than `unread` counts.
     unreadIsLowerBound: sitemapCutOff,
+    mode: "crawled" as const,
+    publishedUrl: null,
+    filtered: false,
+    scope: prefix,
     source: start.href,
   };
 }
