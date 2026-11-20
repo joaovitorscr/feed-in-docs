@@ -36,10 +36,11 @@ Docs sites often keep a full copy of the docs per release beside the current one
   2. at least 5 in-scope URLs, not counting the start page, have no version first segment (`MIN_UNVERSIONED_URLS`), so a site whose docs all live under `/docs/v2/` and `/docs/v3/` keeps every page;
   3. the start URL isn't inside a numeric version, either pinned by the scope (`/docs/3.8.1/installation` crawls `/docs/3.8.1/`) or as its own first segment after the scope.
 
-  "Seen" means every in-scope URL the crawl has found: the start page, the sitemaps and every fetched page's links. The counts only grow, so once the filter is on it stays on.
+  "Seen" means every in-scope page the crawl has found: the start page, the sitemaps and every fetched page's links, each under the first URL found for its key (see Dedupe). So `/docs/x` and `/docs/x/` count once. The counts only grow, so once the filter is on it stays on.
 
 - **What it skips.** In-scope URLs whose first segment is a numeric version or a release channel, except the segment the start URL itself sits in. A start at `/docs/next/x` keeps `next` beside the unversioned pages and skips the numbered copies.
 - **When it's applied.** When the pool would start a URL, so a skipped URL is never fetched. With a sitemap, the filter is usually on before the first page starts. It's applied again when the entries are placed: a version copy fetched before the filter turned on (possible without a sitemap) has no entry, and its links aren't followed. So the result doesn't depend on the order pages answer in.
+- **Redirects into a copy.** Both places also check where a page landed. A page that redirects into a skipped copy (`/docs/x` → `/docs/3.9.2/x`) is dropped like a page that lands outside the scope: no entry, and its links aren't followed.
 - **Counting.** A skipped URL isn't `failed` and isn't `unread`.
 
 A versioned start URL indexes that version: `/docs/3.8.1/installation` gives `/docs/3.8.1/` and nothing else.
@@ -84,7 +85,7 @@ A candidate that fails any step, or any network error, is skipped. If neither is
 1. With `crawl: true`, the start page and `/sitemap.xml` on the typed origin are fetched at the same time. Otherwise the start page is fetched, then the published check runs, and the sitemap is read from the anchor's origin only if no published file is used. If the start page fails, the whole run fails. If it landed on another origin, the typed origin's sitemap is discarded and `/sitemap.xml` is read again from the anchor's origin.
 2. Sitemaps are read breadth-first. Each `<sitemap><loc>` on the same origin is queued as a nested sitemap, and each `<url><loc>` on the same origin is kept, with its hash and query removed. A sitemap that fails is skipped, so a site without one still works through links.
 3. The scope is decided, including any widening. The crawl queue is then the in-scope sitemap URLs in sitemap order, followed by the start page's in-scope links.
-4. Pages are fetched by a pool of 8 slots. Each slot takes the next queued URL as soon as its fetch finishes, so no slot waits on the slowest page of a batch. It passes over older version copies without fetching them (see Older versions). Each fetched page's in-scope links are appended to the queue in document order, and recorded under the URL the page was queued as.
+4. Pages are fetched by a pool of 8 slots. Each slot takes the next queued URL as soon as its fetch finishes, so no slot waits on the slowest page of a batch. It passes over older version copies without fetching them (see Older versions). Each fetched page's in-scope links are appended to the queue in document order, skipping keys already queued (see Dedupe). They're recorded under the URL the page was queued as, each rewritten to the URL its key is queued under.
 5. Each page is parsed once. The same parse gives its title, description, project name, markdown link and links.
 
 **Links** come from every `a[href]`. The hash and query are removed, and only same-origin links are kept. A path ending in `.png`, `.jpg`, `.jpeg`, `.svg`, `.pdf`, `.zip`, `.webp`, `.gif`, `.json` or `.xml` is dropped.
@@ -93,7 +94,16 @@ A candidate that fails any step, or any network error, is skipped. If neither is
 
 ## Dedupe
 
-A URL is queued once, keyed by its exact `href` after the hash and query are removed. There's no other normalization. The start page is never queued again, under either the typed URL or the anchor. A page reachable under two URLs, such as with and without a trailing slash, or through a redirect, is listed once per URL.
+Each page is listed once, under a URL inside the scope.
+
+- **Key.** `pageKey` in `lib/scope.ts`: the origin plus the path, with a trailing `/index.html` or `/` removed, except for the root, which keeps its `/`. The hash and query are already gone. So `/docs/x`, `/docs/x/` and `/docs/x/index.html` share `https://site/docs/x`, while `/docs/x.html` and `/docs/x.md` are keys of their own. Path case is kept.
+- **Before fetching.** A URL whose key is already scheduled is skipped, so each key is fetched once, under the first URL found for it: sitemap order, then the start page's links, then each page's links. The start page's key is scheduled from the start, under both the typed URL and the anchor. A key found only through links, under two forms on two pages, is fetched under whichever form was found first. If a site serves both forms without redirecting, which form is listed, and the links read from it, can then depend on which page answered first. With a sitemap, most keys are seeded in sitemap order before any page answers.
+- **After fetching**, by where the page landed after its redirects:
+  - A page that landed outside the scope (a same-origin redirect from `/docs/moved` to `/blog/moved`) is dropped, and its links aren't followed. It isn't counted as `failed`.
+  - A page that landed in an older version copy the filter skips is dropped the same way (see Older versions).
+  - Pages whose landing URLs share a key, such as a URL and the page it redirects to, keep the one the breadth-first walk (see Entries) places first. The walk leaves out older version copies before this runs. A page that redirects onto the start page's key is dropped, because the start page is placed first.
+  - An entry whose link repeats an earlier entry's link is dropped.
+- **No canonical tags.** `<link rel="canonical">` is ignored, because it's often wrong.
 
 ## Entries
 
@@ -103,11 +113,11 @@ Each page with a title becomes one line, and the start page comes first. The ord
 2. the in-scope sitemap URLs in sitemap order, then the start page's in-scope links;
 3. each placed page's in-scope links in document order, skipping URLs already placed.
 
-Older version copies are left out at every step, and their links aren't followed. So the same responses always give the same text.
+Older version copies are left out at every step, and their links aren't followed, judged both by the URL a page was queued as and by where it landed. A page that landed outside the scope is left out the same way. Then a page that landed on a key already placed is dropped, and so is an entry whose link repeats (see Dedupe). So the same responses give the same text, apart from the two-form case in Dedupe.
 
 - **Title:** the first `main h1`, then the first `h1`, then `<title>`, then the last path segment. Colons are removed and the title is cut to 100 characters.
 - **Description:** the meta description, then the first `main p`, then the first `article p`, cut to 180 characters.
-- **Link:** a same-origin `<link rel="alternate" type="text/markdown">` if the page declares one, otherwise the page URL.
+- **Link:** a `<link rel="alternate" type="text/markdown">` if the page declares one on the anchor's origin inside the scope, or the scope root as Markdown (`/docs.md`), the same rule as published files. Otherwise the URL the page landed on after its redirects. An alternate outside the scope is ignored.
 - **Project name and summary:** taken from the start page. The project is the last `|`-separated part of `<head> <title>`, falling back to the hostname.
 
 ## Limits
@@ -135,7 +145,7 @@ The budgets live in `lib/limits.ts`. `app/api/generate/route.ts` exports `maxDur
 
 - **`mode`** is `"published"` or `"crawled"`. A crawl has `publishedUrl: null` and `filtered: false`, and its `scope` is the folder it crawled, after any widening.
 
-- **`unread`** counts in-scope URLs that were queued but never fetched, plus fetches the deadline cut short. The queue only holds in-scope URLs, each once, so `unread` never counts a duplicate, an out-of-scope URL, or a page in `failed`. A skipped older version copy isn't counted either.
+- **`unread`** counts in-scope URLs that were queued but never fetched, plus fetches the deadline cut short. The queue only holds in-scope URLs, each key once, so `unread` never counts a duplicate (`/docs/x` beside `/docs/x/`), an out-of-scope URL, or a page in `failed`. A skipped older version copy isn't counted either.
 - **`unreadIsLowerBound`** is true when the deadline stopped the sitemap walk with sitemaps still unread. Their pages were never found, so more pages may exist than `unread` counts.
 - **`truncated`** is `unread > 0 || unreadIsLowerBound`. A deadline that fires after the last page is read doesn't truncate anything.
 - **Order.** A truncated index uses the same breadth-first order over the pages that were read. A page that wasn't read has no entry, and its links aren't followed.

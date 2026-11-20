@@ -59,6 +59,18 @@ export function inScope(url: URL, scope: string) {
   return url.pathname.startsWith(scope) || url.pathname === scope.slice(0, -1);
 }
 
+/**
+ * The key a crawl lists a page under once: the origin plus the path, without a trailing
+ * `/index.html` or `/` (the root keeps its `/`), and without the hash and query.
+ * `/docs/x`, `/docs/x/` and `/docs/x/index.html` share `https://site/docs/x`.
+ */
+export function pageKey(url: URL) {
+  let path = url.pathname;
+  if (path.endsWith("/index.html")) path = path.slice(0, -"index.html".length);
+  if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
+  return `${url.origin}${path}`;
+}
+
 /** Distinct numeric-version first segments a crawl must see before older versions are skipped. */
 export const MIN_VERSIONS = 2;
 /** In-scope URLs without a version first segment, besides the start page, needed for the same. */
