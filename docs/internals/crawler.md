@@ -29,7 +29,8 @@ So `/en/getting-started/` with 1 URL becomes `/en/`, while `/en/stable/`, `/en/l
 1. The start page and `/sitemap.xml` on the typed origin are fetched at the same time. If the start page fails, the whole run fails. If it landed on another origin, that sitemap is discarded and `/sitemap.xml` is read again from the anchor's origin.
 2. Sitemaps are read breadth-first. Each `<sitemap><loc>` on the same origin is queued as a nested sitemap, and each `<url><loc>` on the same origin is kept, with its hash and query removed. A sitemap that fails is skipped, so a site without one still works through links.
 3. The scope is decided, including any widening. The crawl queue is then the in-scope sitemap URLs in sitemap order, followed by the start page's in-scope links.
-4. Pages are fetched in batches of 8. Each fetched page's in-scope links are appended to the queue in document order.
+4. Pages are fetched by a pool of 8 slots. Each slot takes the next queued URL as soon as its fetch finishes, so no slot waits on the slowest page of a batch. Each fetched page's in-scope links are appended to the queue in document order, and recorded under the URL the page was queued as.
+5. Each page is parsed once. The same parse gives its title, description, project name, markdown link and links.
 
 **Links** come from every `a[href]`. The hash and query are removed, and only same-origin links are kept. A path ending in `.png`, `.jpg`, `.jpeg`, `.svg`, `.pdf`, `.zip`, `.webp`, `.gif`, `.json` or `.xml` is dropped.
 
@@ -41,7 +42,13 @@ A URL is queued once, keyed by its exact `href` after the hash and query are rem
 
 ## Entries
 
-Each page with a title becomes one line, in queue order, and the start page comes first.
+Each page with a title becomes one line, and the start page comes first. The order doesn't depend on which fetch finished first. After the crawl, the entries follow a breadth-first walk of the recorded links:
+
+1. the start page;
+2. the in-scope sitemap URLs in sitemap order, then the start page's in-scope links;
+3. each placed page's in-scope links in document order, skipping URLs already placed.
+
+So the same responses always give the same text.
 
 - **Title:** the first `main h1`, then the first `h1`, then `<title>`, then the last path segment. Colons are removed and the title is cut to 100 characters.
 - **Description:** the meta description, then the first `main p`, then the first `article p`, cut to 180 characters.
