@@ -1,14 +1,26 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "jsPlugins": ["@shadcn/lint"],
+  "jsPlugins": ["@shadcn/lint", "./lint/plugin.ts"],
   "rules": {
-    "shadcn/no-arbitrary-values": "error"
+    "shadcn/no-arbitrary-values": "error",
+    "typescript/no-explicit-any": "error",
+    "feed-in-docs/bytes-not-length": "error",
+    "feed-in-docs/blob-get-cache": "error",
+    "feed-in-docs/blob-etags": "error",
+    "feed-in-docs/effect-cleanup": "error"
   },
   "overrides": [
     {
       "files": ["components/ui/**"],
       "rules": {
         "shadcn/no-arbitrary-values": "off"
+      }
+    },
+    {
+      "files": ["lib/**", "app/**/route.ts"],
+      "rules": {
+        "feed-in-docs/no-unbounded-body": "error",
+        "feed-in-docs/fetch-needs-deadline": "error"
       }
     }
   ]
