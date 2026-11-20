@@ -18,6 +18,8 @@ tester.run("no-unbounded-body", rules["no-unbounded-body"], {
     "async function a() { const res = await fetch(url, { signal }); return readText(res, MAX_BYTES, url); } async function b(res) { return res.json(); }",
     // Only the global fetch is a raw network response.
     "const res = await client.fetch(url); const data = await res.json();",
+    // A fetch the file receives is a custom function, not the global one.
+    "async function load(fetch) { const res = await fetch(url); return res.json(); }",
   ],
   invalid: [
     {
@@ -60,6 +62,7 @@ tester.run("fetch-needs-deadline", rules["fetch-needs-deadline"], {
     "await fetch(url, { ...options });",
     // Options built elsewhere can't be checked here.
     "await fetch(url, init);",
+    "function load(fetch) { return fetch(url); }",
   ],
   invalid: [
     { code: "await fetch(url);", errors: 1 },
@@ -78,6 +81,8 @@ tester.run("blob-get-cache", rules["blob-get-cache"], {
     "import { get } from '@vercel/blob'; await get(path, { access: 'private', useCache: true });",
     // Some other `get`.
     "import { get } from 'lodash'; get(object, 'a.b');",
+    // Options passed as a variable can't be checked here.
+    "import { get } from '@vercel/blob'; await get(path, options);",
   ],
   invalid: [
     {
@@ -124,6 +129,14 @@ tester.run("effect-cleanup", rules["effect-cleanup"], {
     // A cleanup that calls a helper may undo anything.
     "useEffect(() => { api.on('select', onSelect); return () => { teardown(); }; }, [api]);",
     "useEffect(() => { timer.current = setInterval(tick, 1000); return () => clearInterval(timer.current); }, []);",
+    // Inherited names like toString and valueOf aren't timers.
+    "useEffect(() => { const text = value.toString(); const raw = value.valueOf(); }, [value]);",
+    // Events compare by value, whatever the quotes.
+    `useEffect(() => { api.on('select', onSelect); return () => { api.off("select", onSelect); }; }, [api]);`,
+    // The capture phase must match, however it's spelled.
+    "useEffect(() => { window.addEventListener('click', onClick, { capture: true }); return () => window.removeEventListener('click', onClick, true); }, []);",
+    // A concise body's result is the cleanup, like an unsubscribe function.
+    "useEffect(() => api.on('select', onSelect), [api]);",
   ],
   invalid: [
     {
@@ -148,6 +161,16 @@ tester.run("effect-cleanup", rules["effect-cleanup"], {
     },
     {
       code: "useEffect(() => { button.addEventListener('click', update, { once: false }); }, []);",
+      errors: 1,
+    },
+    {
+      // Removing the bubbling listener leaves the capturing one attached.
+      code: "useEffect(() => { window.addEventListener('click', onClick, true); return () => window.removeEventListener('click', onClick); }, []);",
+      errors: 1,
+    },
+    {
+      // A helper call next to other statements doesn't hide the missing off('reInit').
+      code: "useEffect(() => { api.on('reInit', onSelect); api.on('select', onSelect); return () => { setReady(false); api.off('select', onSelect); }; }, [api]);",
       errors: 1,
     },
   ],

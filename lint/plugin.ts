@@ -29,12 +29,28 @@ function unwrap(node: Expression): Expression {
   return node;
 }
 
-/** Whether `node` calls the global `fetch`, not a method such as `client.fetch`. */
-function isFetch(node: Expression) {
+/** Whether the identifier `node` is declared in this file: a variable, parameter or import. */
+function isLocal(context: Context, node: Expression) {
+  if (node.type !== "Identifier") return false;
+  let scope: ReturnType<Context["sourceCode"]["getScope"]> | null =
+    context.sourceCode.getScope(node);
+  for (; scope; scope = scope.upper) {
+    const variable = scope.set.get(node.name);
+    if (variable) return variable.defs.length > 0;
+  }
+  return false;
+}
+
+/**
+ * Whether `node` calls the global `fetch`: not a method such as `client.fetch`, and not a `fetch`
+ * the file declares or receives as a parameter.
+ */
+function isGlobalFetch(context: Context, node: Expression) {
   return (
     node.type === "CallExpression" &&
     node.callee.type === "Identifier" &&
-    node.callee.name === "fetch"
+    node.callee.name === "fetch" &&
+    !isLocal(context, node.callee)
   );
 }
 
@@ -76,6 +92,7 @@ const noUnboundedBody = {
     docs: { description: "Read fetched bodies through readText, which stops at a byte limit." },
   },
   create(context) {
+    const isFetch = (node: Expression) => isGlobalFetch(context, node);
     return {
       CallExpression(node) {
         const method = nameOf(node.callee);
@@ -146,7 +163,7 @@ const fetchNeedsDeadline = {
   create(context) {
     return {
       CallExpression(node) {
-        if (!isFetch(node)) return;
+        if (!isGlobalFetch(context, node)) return;
         const options = node.arguments[1];
         if (options && options.type !== "ObjectExpression") return;
         if (hasSpread(options)) return;
@@ -201,8 +218,11 @@ const blobGetCache = {
             callee.object.type === "Identifier" &&
             namespaces.has(callee.object.name) &&
             nameOf(callee) === "get");
-        if (!isGet || hasSpread(node.arguments[1]) || property(node.arguments[1], "useCache"))
+        const options = node.arguments[1];
+        // Options passed as a variable or with a spread can't be checked here.
+        if (!isGet || (options && options.type !== "ObjectExpression") || hasSpread(options))
           return;
+        if (property(options, "useCache")) return;
         context.report({
           node,
           message:
@@ -263,21 +283,37 @@ const blobEtags = {
 
 const EFFECTS = new Set(["useEffect", "useLayoutEffect"]);
 
-const TIMERS = {
-  setInterval: "clearInterval",
-  setTimeout: "clearTimeout",
-  requestAnimationFrame: "cancelAnimationFrame",
-} as const;
-const CLEARS = new Map<string, string>(Object.entries(TIMERS).map(([set, clear]) => [clear, set]));
+// A Map, not an object, so inherited names like `toString` never count as timers.
+const TIMERS = new Map([
+  ["setInterval", "clearInterval"],
+  ["setTimeout", "clearTimeout"],
+  ["requestAnimationFrame", "cancelAnimationFrame"],
+]);
+const CLEARS = new Map([...TIMERS].map(([set, clear]) => [clear, set]));
+
+/**
+ * The phase a DOM listener's third argument picks: "capture" for `true` or `{ capture: true }`,
+ * "bubble" when it's omitted or anything else literal, `null` when it can't be known.
+ */
+function phase(options: Call["arguments"][number] | undefined) {
+  if (!options) return "bubble";
+  if (options.type === "Literal") return options.value === true ? "capture" : "bubble";
+  if (options.type !== "ObjectExpression" || hasSpread(options)) return null;
+  const capture = property(options, "capture");
+  if (!capture) return "bubble";
+  return capture.type === "Literal" ? (capture.value === true ? "capture" : "bubble") : null;
+}
 
 function isFunction(node: Node) {
   return node.type === "ArrowFunctionExpression" || node.type === "FunctionExpression";
 }
 
 // 6d2ac7d: the carousel's effect subscribed to reInit and select but only removed select.
-// Starts are matched to stops by receiver, event and handler, and timers by the variable that
-// holds their id. Only starts in the effect's own body count, not ones inside handlers it defines,
-// and a cleanup that calls a helper, like `return unsubscribe` or `() => teardown()`, is trusted.
+// Starts are matched to stops by receiver, event, handler and capture phase, and timers by the
+// variable that holds their id. Only starts in the effect's own body count, not ones inside
+// handlers it defines. An effect is trusted when its cleanup is opaque: `return unsubscribe`, a
+// cleanup whose only statement calls a helper, like `() => teardown()`, or a concise body like
+// `() => api.on(…)`, whose result is the cleanup.
 const effectCleanup = {
   meta: {
     type: "problem",
@@ -297,16 +333,25 @@ const effectCleanup = {
     const action = (node: Call) => {
       const name = nameOf(node.callee) ?? "";
       const receiver = node.callee.type === "MemberExpression" ? text(node.callee.object) : "";
-      const [first, second] = node.arguments.map((arg) => text(arg));
+      // A string event compares by value, so 'select' and "select" match.
+      const [first, second] = node.arguments.map((arg) =>
+        arg.type === "Literal" && typeof arg.value === "string"
+          ? JSON.stringify(arg.value)
+          : text(arg),
+      );
+      const isDom = name === "addEventListener" || name === "removeEventListener";
+      const listenerPhase = isDom ? phase(node.arguments[2]) : "";
       // `off(event)` with no handler removes them all, so it stops `any`.
-      const base = (kind: string) => `${receiver} ${kind} ${first}`;
+      const base = (kind: string) => `${receiver} ${kind} ${listenerPhase} ${first}`;
       const listener = (kind: string) => `${base(kind)} ${second ?? "*"}`;
+      if (isDom && listenerPhase === null) return null;
       if (name === "addEventListener") {
         const options = node.arguments[2];
         const once = property(options, "once");
         if (property(options, "signal") || hasSpread(options)) return null;
         if (once?.type === "Literal" && once.value === true) return null;
-        const fix = `${receiver ? `${receiver}.` : ""}removeEventListener(${first}, ${second})`;
+        const capture = listenerPhase === "capture" ? ", true" : "";
+        const fix = `${receiver ? `${receiver}.` : ""}removeEventListener(${first}, ${second}${capture})`;
         return {
           kind: "start",
           key: listener("listener"),
@@ -321,8 +366,8 @@ const effectCleanup = {
         return { kind: "start", key: listener("on"), any: `${base("on")} *`, fix } as const;
       }
       if (name === "off") return { kind: "stop", key: listener("on") } as const;
-      if (name in TIMERS) {
-        const clear = TIMERS[name as keyof typeof TIMERS];
+      const clear = TIMERS.get(name);
+      if (clear) {
         const { parent } = node;
         const holder =
           parent.type === "VariableDeclarator" && parent.init === node
@@ -363,17 +408,28 @@ const effectCleanup = {
       return null;
     };
 
-    /** Whether `path` (below the effect callback) runs inside the cleanup function it returns. */
-    const inCleanup = (callback: Node, path: Node[]) => {
+    /** The cleanup function the effect returns, when `path` (below the callback) runs in it. */
+    const cleanupOf = (callback: Node, path: Node[]) => {
       const first = path[0];
       // `useEffect(() => () => …)`: the concise body is the cleanup.
-      if (callback.type === "ArrowFunctionExpression" && callback.expression)
-        return isFunction(first);
-      for (let i = 0; i < path.length - 1; i++) {
-        if (isFunction(path[i])) return false;
-        if (path[i].type === "ReturnStatement") return isFunction(path[i + 1]);
+      if (callback.type === "ArrowFunctionExpression" && callback.expression) {
+        return isFunction(first) ? first : null;
       }
-      return false;
+      for (let i = 0; i < path.length - 1; i++) {
+        if (isFunction(path[i])) return null;
+        if (path[i].type === "ReturnStatement") return isFunction(path[i + 1]) ? path[i + 1] : null;
+      }
+      return null;
+    };
+
+    /** Whether `call` is the whole of the cleanup `fn`: its concise body, or its only statement. */
+    const isWholeCleanup = (fn: Node, call: Call) => {
+      if (fn.type !== "ArrowFunctionExpression" && fn.type !== "FunctionExpression") return false;
+      const { body } = fn;
+      if (body === call) return true;
+      if (body?.type !== "BlockStatement" || body.body.length !== 1) return false;
+      const [only] = body.body;
+      return only.type === "ExpressionStatement" && only.expression === call;
     };
 
     const effectFor = (callback: Node) => {
@@ -396,11 +452,27 @@ const effectCleanup = {
       CallExpression(node) {
         const found = enclosingEffect(node);
         if (!found) return;
-        const cleanup = inCleanup(found.callback, found.path);
+        const { callback } = found;
+        // `useEffect(() => api.on(…))`: the call's result is the cleanup.
+        if (
+          callback.type === "ArrowFunctionExpression" &&
+          callback.expression &&
+          callback.body.type !== "ArrowFunctionExpression" &&
+          callback.body.type !== "FunctionExpression"
+        ) {
+          effectFor(callback).opaque = true;
+        }
+        const cleanupFn = cleanupOf(callback, found.path);
+        const cleanup = cleanupFn !== null;
         const step = action(node);
-        // A cleanup calling a helper, like `teardown()`, may undo anything.
-        if (!step && cleanup && node.callee.type === "Identifier") {
-          effectFor(found.callback).opaque = true;
+        // A cleanup that only calls a helper, like `() => teardown()`, may undo anything.
+        if (
+          !step &&
+          cleanupFn &&
+          node.callee.type === "Identifier" &&
+          isWholeCleanup(cleanupFn, node)
+        ) {
+          effectFor(callback).opaque = true;
         }
         if (!step) return;
         const effect = effectFor(found.callback);
