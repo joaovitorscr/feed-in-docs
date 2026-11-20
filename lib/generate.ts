@@ -4,7 +4,14 @@ import { isIP } from "node:net";
 import { RUN_BUDGET_MS } from "@/lib/limits";
 import { entryInScope, publishedLlmsTxt } from "@/lib/published";
 import { inScope, pageKey, scopePath, versionFilter, widenScope } from "@/lib/scope";
-import { cleanTitle, HEADING_ANCHORS, projectName } from "@/lib/metadata";
+import {
+  cleanTitle,
+  entryDescriptions,
+  HEADING_ANCHORS,
+  MIN_PARAGRAPH_LENGTH,
+  PAGE_CHROME,
+  projectName,
+} from "@/lib/metadata";
 import { escapeMarkdown, truncate } from "@/lib/text";
 
 const MAX_BYTES = 1_000_000;
@@ -51,7 +58,19 @@ type Page = {
   headTitle: string;
   applicationName: string;
   siteName: string;
+  /**
+   * The meta description, or for a page without one, its first `main p`, then its first
+   * `article p`; cut to MAX_DESCRIPTION_LENGTH.
+   */
   description: string;
+  /** True when `description` is the meta description, the only kind that can be site-wide. */
+  fromMeta: boolean;
+  /**
+   * The first `main p`, then `article p`, outside the page chrome and at least
+   * MIN_PARAGRAPH_LENGTH characters long, cut the same way. Stands in for a site-wide meta
+   * description.
+   */
+  paragraph: string;
   /** Where the page landed after its redirects. */
   url: URL;
   /** A same-origin `<link rel="alternate" type="text/markdown">`, or null. */
@@ -325,12 +344,23 @@ function parsePage(html: string, url: URL): Page {
   const headTitle = clean($("head > title").first().text());
   const applicationName = clean($('meta[name="application-name"]').attr("content") ?? "");
   const siteName = clean($('meta[property="og:site_name"]').attr("content") ?? "");
+  const meta = $('meta[name="description"]').attr("content");
   const description = truncate(
-    clean(
-      $('meta[name="description"]').attr("content") ||
-        $("main p").first().text() ||
-        $("article p").first().text(),
-    ),
+    clean(meta || $("main p").first().text() || $("article p").first().text()),
+    MAX_DESCRIPTION_LENGTH,
+  );
+  // Skips paragraphs inside the page chrome by their ancestors, so nothing is removed from the
+  // page whose links are collected below.
+  const firstParagraph = (selector: string) => {
+    for (const element of $(selector).toArray()) {
+      if ($(element).closest(PAGE_CHROME).length) continue;
+      const text = clean($(element).text());
+      if (text.length >= MIN_PARAGRAPH_LENGTH) return text;
+    }
+    return "";
+  };
+  const paragraph = truncate(
+    firstParagraph("main p") || firstParagraph("article p"),
     MAX_DESCRIPTION_LENGTH,
   );
   let alternate: URL | null = null;
@@ -366,6 +396,8 @@ function parsePage(html: string, url: URL): Page {
     applicationName,
     siteName,
     description,
+    fromMeta: !!meta,
+    paragraph,
     url,
     alternate,
     links: [...links],
@@ -591,7 +623,9 @@ async function crawlSite(input: string, deadline: AbortSignal, crawlOnly: boolea
     hostname: first.url.hostname,
     nextHeadTitle: entries[1]?.page.headTitle,
   });
+  // The summary keeps the start page's meta description even when it's site-wide.
   const summary = first.description || `Documentation for ${project}.`;
+  const descriptions = entryDescriptions(entries.map(({ page }) => page));
   const lines = [
     `# ${escapeMarkdown(project)}`,
     "",
@@ -600,10 +634,10 @@ async function crawlSite(input: string, deadline: AbortSignal, crawlOnly: boolea
     "## Documentation",
     "",
   ];
-  for (const { page, url } of entries) {
+  for (const [index, { page, url }] of entries.entries()) {
     // The colon is removed because `: ` separates the link from its description.
     const title = escapeMarkdown(truncate(page.title.replace(/\s*:+\s*/g, " "), MAX_TITLE_LENGTH));
-    const description = page.description ? `: ${escapeMarkdown(page.description)}` : "";
+    const description = descriptions[index] ? `: ${escapeMarkdown(descriptions[index])}` : "";
     lines.push(`- [${title}](${url})${description}`);
   }
   return {

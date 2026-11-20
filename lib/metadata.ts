@@ -1,6 +1,40 @@
 /** Permalink anchors docs generators put inside headings: Sphinx, VitePress, Docusaurus, GitHub-style. */
 export const HEADING_ANCHORS = ".headerlink, .header-anchor, .hash-link, .anchor";
 
+/** Page chrome a fallback paragraph is never read from. */
+export const PAGE_CHROME = "nav, header, footer, aside, [role=navigation]";
+
+/** The shortest paragraph, in characters, that can stand in for a meta description. */
+export const MIN_PARAGRAPH_LENGTH = 20;
+
+/**
+ * A meta description is the site's, not the page's, when at least this many entries share it
+ * and they're at least SITE_WIDE_PERCENT of the listed entries.
+ */
+const SITE_WIDE_USES = 3;
+const SITE_WIDE_PERCENT = 10;
+
+/**
+ * Each entry's description, in entry order. A site-wide meta description is replaced by the
+ * page's paragraph, or none; every other description is kept, including one a page without a
+ * meta description took from its first paragraph. Only the listed entries count, so the result
+ * doesn't depend on fetch order.
+ */
+export function entryDescriptions(
+  pages: Array<{ description: string; fromMeta: boolean; paragraph: string }>,
+) {
+  const uses = new Map<string, number>();
+  for (const { description, fromMeta } of pages)
+    if (fromMeta && description) uses.set(description, (uses.get(description) ?? 0) + 1);
+  const siteWide = (description: string) => {
+    const count = uses.get(description) ?? 0;
+    return count >= SITE_WIDE_USES && count * 100 >= pages.length * SITE_WIDE_PERCENT;
+  };
+  return pages.map(({ description, fromMeta, paragraph }) =>
+    fromMeta && siteWide(description) ? paragraph : description,
+  );
+}
+
 // A `#` counts only after whitespace, so "Learn C#" keeps its name.
 const TRAILING_MARKS = /(?:[\s¶\u200B-\u200D\u2060\uFEFF]|\s#+)+$/u;
 const SEPARATORS = / (?:\||-|–|—|·) /;
