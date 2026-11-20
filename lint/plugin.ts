@@ -54,11 +54,16 @@ function isGlobalFetch(context: Context, node: Expression) {
   );
 }
 
-/** The value of a non-computed `key` in an object literal argument, or `undefined`. */
+/**
+ * The value of a non-computed `key` in an object literal argument, written plain or quoted
+ * (`capture` or `'capture'`), or `undefined`.
+ */
 function property(arg: Call["arguments"][number] | undefined, key: string) {
   if (arg?.type !== "ObjectExpression") return undefined;
   for (const prop of arg.properties) {
-    if (prop.type === "Property" && !prop.computed && nameOf(prop.key) === key) return prop.value;
+    if (prop.type !== "Property" || prop.computed) continue;
+    const name = prop.key.type === "Literal" ? prop.key.value : nameOf(prop.key);
+    if (name === key) return prop.value;
   }
   return undefined;
 }
@@ -333,12 +338,15 @@ const effectCleanup = {
     const action = (node: Call) => {
       const name = nameOf(node.callee) ?? "";
       const receiver = node.callee.type === "MemberExpression" ? text(node.callee.object) : "";
-      // A string event compares by value, so 'select' and "select" match.
-      const [first, second] = node.arguments.map((arg) =>
-        arg.type === "Literal" && typeof arg.value === "string"
-          ? JSON.stringify(arg.value)
-          : text(arg),
-      );
+      // A string event compares by value, so 'select', "select" and `select` match.
+      const [first, second] = node.arguments.map((arg) => {
+        if (arg.type === "Literal" && typeof arg.value === "string")
+          return JSON.stringify(arg.value);
+        if (arg.type === "TemplateLiteral" && arg.expressions.length === 0) {
+          return JSON.stringify(arg.quasis[0].value.cooked);
+        }
+        return text(arg);
+      });
       const isDom = name === "addEventListener" || name === "removeEventListener";
       const listenerPhase = isDom ? phase(node.arguments[2]) : "";
       // `off(event)` with no handler removes them all, so it stops `any`.
@@ -453,14 +461,19 @@ const effectCleanup = {
         const found = enclosingEffect(node);
         if (!found) return;
         const { callback } = found;
-        // `useEffect(() => api.on(…))`: the call's result is the cleanup.
-        if (
-          callback.type === "ArrowFunctionExpression" &&
-          callback.expression &&
-          callback.body.type !== "ArrowFunctionExpression" &&
-          callback.body.type !== "FunctionExpression"
-        ) {
-          effectFor(callback).opaque = true;
+        // `useEffect(() => api.on(…))`: the call's result is the cleanup. A timer returns an id
+        // and addEventListener returns nothing, so neither counts.
+        if (callback.type === "ArrowFunctionExpression" && callback.expression) {
+          const { body } = callback;
+          const callee = body.type === "CallExpression" ? (nameOf(body.callee) ?? "") : "";
+          const noCleanup = TIMERS.has(callee) || callee === "addEventListener";
+          if (
+            body.type !== "ArrowFunctionExpression" &&
+            body.type !== "FunctionExpression" &&
+            !noCleanup
+          ) {
+            effectFor(callback).opaque = true;
+          }
         }
         const cleanupFn = cleanupOf(callback, found.path);
         const cleanup = cleanupFn !== null;

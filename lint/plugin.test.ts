@@ -137,6 +137,9 @@ tester.run("effect-cleanup", rules["effect-cleanup"], {
     "useEffect(() => { window.addEventListener('click', onClick, { capture: true }); return () => window.removeEventListener('click', onClick, true); }, []);",
     // A concise body's result is the cleanup, like an unsubscribe function.
     "useEffect(() => api.on('select', onSelect), [api]);",
+    // Quoted option keys and template-literal events compare by value too.
+    "useEffect(() => { window.addEventListener('click', onClick, { 'capture': true }); return () => window.removeEventListener('click', onClick, true); }, []);",
+    "useEffect(() => { el.addEventListener(`x`, onX); return () => el.removeEventListener('x', onX); }, []);",
   ],
   invalid: [
     {
@@ -168,6 +171,14 @@ tester.run("effect-cleanup", rules["effect-cleanup"], {
       code: "useEffect(() => { window.addEventListener('click', onClick, true); return () => window.removeEventListener('click', onClick); }, []);",
       errors: 1,
     },
+    {
+      // A quoted `capture` key still makes a capturing listener.
+      code: "useEffect(() => { window.addEventListener('click', onClick, { 'capture': true }); return () => window.removeEventListener('click', onClick); }, []);",
+      errors: 1,
+    },
+    // A concise body returning a timer id or nothing isn't a cleanup.
+    { code: "useEffect(() => setTimeout(tick, 1000), []);", errors: 1 },
+    { code: "useEffect(() => el.addEventListener('x', onX), []);", errors: 1 },
     {
       // A helper call next to other statements doesn't hide the missing off('reInit').
       code: "useEffect(() => { api.on('reInit', onSelect); api.on('select', onSelect); return () => { setReady(false); api.off('select', onSelect); }; }, [api]);",
