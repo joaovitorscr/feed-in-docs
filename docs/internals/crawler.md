@@ -89,7 +89,7 @@ A candidate that fails any step, or any network error, is skipped. If neither is
    - **Admission.** A level's files are admitted in path order, skipping any file already admitted, at that level or an earlier one (a self-reference, or `/sitemap.xml` listed again by an index). So each file is read once, at its first position.
    - **Loading.** The admitted files load 4 at a time (`SITEMAP_CONCURRENCY`), each starting as soon as a slot frees. The next level is admitted only once every file of this one has loaded.
    - **Merge.** Each file's pages and nested sitemaps are stored at its position, never in the order files answer. Pages are merged by level, then path, the same order as admission, so the result is what reading the files one at a time from a FIFO queue gives.
-   - **Cap.** At most 50 files are read per run (`MAX_SITEMAP_FILES`; robots.txt doesn't count). Files are admitted in that order until the cap is reached, so which 50 are read doesn't depend on which answered first. A file left over at the cap sets `truncated` and `unreadIsLowerBound` (see Response); reaching exactly 50 with nothing left over doesn't.
+   - **Cap.** At most 50 files are read per run (`MAX_SITEMAP_FILES`; robots.txt doesn't count). Files are admitted in that order until the cap is reached, so which 50 are read doesn't depend on which answered first. A file left over at the cap sets `truncated` and `unreadIsLowerBound`, but not `timedOut` (see Response); reaching exactly 50 with nothing left over doesn't.
    - **Deadline.** No sitemap starts after the run deadline. A file the deadline stopped, or never started, ends the walk after its level: the files of that level that loaded are still merged, and `unreadIsLowerBound` is set.
    - **Not read.** `.xml.gz` sitemaps aren't decompressed: none of the eval sites serves one.
 4. The scope is decided, including any widening. The crawl queue is then the in-scope sitemap URLs in sitemap order, followed by the start page's in-scope links.
@@ -173,12 +173,13 @@ The budgets live in `lib/limits.ts`. `app/api/generate/route.ts` exports `maxDur
 
 ## Response
 
-`generateLlmsTxt` returns `text`, `count`, `failed`, `truncated`, `unread`, `unreadIsLowerBound`, `mode`, `publishedUrl`, `filtered`, `scope` and `source`. The route sends everything but `source`, and adds `link`.
+`generateLlmsTxt` returns `text`, `count`, `failed`, `truncated`, `timedOut`, `unread`, `unreadIsLowerBound`, `mode`, `publishedUrl`, `filtered`, `scope` and `source`. The route sends everything but `source`, and adds `link`.
 
 - **`mode`** is `"published"` or `"crawled"`. A crawl has `publishedUrl: null` and `filtered: false`, and its `scope` is the folder it crawled, after any widening.
 
 - **`unread`** counts in-scope URLs that were queued but never fetched, plus fetches the deadline cut short. The queue only holds in-scope URLs, each key once, so `unread` never counts a duplicate (`/docs/x` beside `/docs/x/`), an out-of-scope URL, or a page in `failed`. A skipped older version copy isn't counted either.
 - **`unreadIsLowerBound`** is true when the deadline stopped the sitemap walk, robots.txt included, or the 50-file cap left sitemaps unread. Their pages were never found, so more pages may exist than `unread` counts.
 - **`truncated`** is `unread > 0 || unreadIsLowerBound`. A deadline that fires after the last page is read doesn't truncate anything.
+- **`timedOut`** is true when the deadline is what truncated the run: it left pages unread, or it stopped the sitemap walk. Only the deadline leaves pages unread, so a run cut short by the file cap alone has `truncated: true`, `unread: 0` and `timedOut: false`. The result screen names the limit that stopped it from this field.
 - **Order.** A truncated index uses the same breadth-first order over the pages that were read. A page that wasn't read has no entry, and its links aren't followed.
 - **Size.** The route measures the JSON response, not the text, against `MAX_RESPONSE_BYTES` (4.4 MB, under Vercel's 4.5 MB limit), and returns a 413 when it's over.

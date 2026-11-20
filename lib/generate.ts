@@ -1,7 +1,7 @@
 import { load } from "cheerio";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { RUN_BUDGET_MS } from "@/lib/limits";
+import { MAX_SITEMAP_FILES, RUN_BUDGET_MS } from "@/lib/limits";
 import { entryInScope, publishedLlmsTxt } from "@/lib/published";
 import { inScope, pageKey, scopePath, versionFilter, widenScope } from "@/lib/scope";
 import {
@@ -20,7 +20,6 @@ const MAX_SITEMAP_BYTES = 10_000_000;
 const TIMEOUT_MS = 8_000;
 const CONCURRENCY = 8;
 const SITEMAP_CONCURRENCY = 4;
-const MAX_SITEMAP_FILES = 50;
 const MAX_TITLE_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 180;
 
@@ -276,19 +275,23 @@ async function readSitemap(href: string, start: URL, deadline: AbortSignal) {
 // parents in order, each parent's children in file order, is already sorted by path. Pages merge
 // in that same order, never by completion order.
 // At most MAX_SITEMAP_FILES files are read, admitted in that order. `cutOff` is true when the
-// deadline or that cap stopped the walk with sitemaps still unread.
+// deadline or that cap stopped the walk with sitemaps still unread, and `timedOut` when the
+// deadline did.
 async function sitemapPages(start: URL, deadline: AbortSignal) {
   let declared: string[] = [];
   try {
     declared = await robotsSitemaps(start, deadline);
   } catch (error) {
-    if (error === deadline.reason) return { pages: new Set<string>(), cutOff: true };
+    if (error === deadline.reason) {
+      return { pages: new Set<string>(), cutOff: true, timedOut: true };
+    }
     /* Without a robots.txt, `/sitemap.xml` is still tried. */
   }
   const seen = new Set<string>();
   const pages = new Set<string>();
   let level = [...declared, new URL("/sitemap.xml", start).href];
   let cutOff = false;
+  let timedOut = false;
   while (level.length && !cutOff) {
     const admitted: string[] = [];
     for (const href of level) {
@@ -311,7 +314,10 @@ async function sitemapPages(start: URL, deadline: AbortSignal) {
       }
     }
     await Promise.all(Array.from({ length: SITEMAP_CONCURRENCY }, lane));
-    if (results.includes(null)) cutOff = true;
+    if (results.includes(null)) {
+      cutOff = true;
+      timedOut = true;
+    }
     level = [];
     for (const result of results) {
       if (!result) continue;
@@ -319,7 +325,7 @@ async function sitemapPages(start: URL, deadline: AbortSignal) {
       level.push(...result.children);
     }
   }
-  return { pages, cutOff };
+  return { pages, cutOff, timedOut };
 }
 
 function clean(text: string) {
@@ -492,6 +498,7 @@ async function crawlSite(input: string, deadline: AbortSignal, crawlOnly: boolea
         count: published.count,
         failed: 0,
         truncated: false,
+        timedOut: false,
         unread: 0,
         unreadIsLowerBound: false,
         mode: "published" as const,
@@ -504,10 +511,13 @@ async function crawlSite(input: string, deadline: AbortSignal, crawlOnly: boolea
   }
   // Only a published file can stand in for a start page too large to read.
   if (startResult instanceof PageTooLargeError) throw startResult;
-  const { pages: sitemap, cutOff: sitemapCutOff } =
-    anchor.origin === start.origin && typedSitemap
-      ? typedSitemap
-      : await sitemapPages(anchor, deadline);
+  const {
+    pages: sitemap,
+    cutOff: sitemapCutOff,
+    timedOut: sitemapTimedOut,
+  } = anchor.origin === start.origin && typedSitemap
+    ? typedSitemap
+    : await sitemapPages(anchor, deadline);
   // Links on the start page resolve against the URL it landed on.
   const startPage = startResult.type.includes("text/markdown")
     ? null
@@ -648,6 +658,9 @@ async function crawlSite(input: string, deadline: AbortSignal, crawlOnly: boolea
     // True when the deadline left pages unread, or the deadline or the file cap stopped the
     // sitemaps before they all loaded.
     truncated: unread > 0 || sitemapCutOff,
+    // True when the deadline is what truncated it. Only the deadline leaves pages unread, so a
+    // run truncated by the file cap alone has `unread: 0` and `timedOut: false`.
+    timedOut: unread > 0 || sitemapTimedOut,
     unread,
     // The sitemaps were cut off by the deadline or the file cap, so more pages may exist than
     // `unread` counts.

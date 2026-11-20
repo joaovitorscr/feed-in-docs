@@ -10,6 +10,7 @@ import {
   Link2,
   RotateCcw,
   ScanText,
+  FileStack,
   TimerOff,
   TriangleAlert,
   type LucideIcon,
@@ -31,7 +32,7 @@ import {
 import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { RUN_BUDGET_LABEL } from "@/lib/limits";
+import { MAX_SITEMAP_FILES, RUN_BUDGET_LABEL } from "@/lib/limits";
 import { cn } from "@/lib/utils";
 
 /**
@@ -44,6 +45,7 @@ type Result = {
   count: number;
   failed: number;
   truncated: boolean;
+  timedOut: boolean;
   unread: number;
   unreadIsLowerBound: boolean;
   mode: "published" | "crawled";
@@ -457,8 +459,12 @@ function TruncatedNotice({ result }: { result: Result }) {
   const unread = `${result.unreadIsLowerBound ? "at least " : ""}${numberFormat.format(result.unread)}`;
   return (
     <Alert>
-      <TimerOff />
-      <AlertTitle>Stopped after {RUN_BUDGET_LABEL}.</AlertTitle>
+      {result.timedOut ? <TimerOff /> : <FileStack />}
+      <AlertTitle>
+        {result.timedOut
+          ? `Stopped after ${RUN_BUDGET_LABEL}.`
+          : `Stopped after ${MAX_SITEMAP_FILES} sitemap files.`}
+      </AlertTitle>
       <AlertDescription>
         {pages(result.count)} listed
         {result.unread > 0

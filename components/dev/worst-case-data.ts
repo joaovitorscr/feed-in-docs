@@ -16,7 +16,7 @@ export type Scenario = {
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
 /** The fields a crawl that finished inside the time limit returns. */
-const COMPLETE = { truncated: false, unread: 0, unreadIsLowerBound: false };
+const COMPLETE = { truncated: false, timedOut: false, unread: 0, unreadIsLowerBound: false };
 
 /** The fields every crawled result returns, given the folder it stayed inside. */
 const crawled = (scope: string) => ({
@@ -192,6 +192,7 @@ export const SCENARIOS: Record<string, Scenario> = {
         count: 1240,
         failed: 37,
         truncated: true,
+        timedOut: true,
         unread: 3900,
         unreadIsLowerBound: false,
         ...crawled(WORST_SCOPE),
@@ -207,7 +208,24 @@ export const SCENARIOS: Record<string, Scenario> = {
         count: 1,
         failed: 0,
         truncated: true,
+        timedOut: true,
         unread: 128_406,
+        unreadIsLowerBound: true,
+        ...crawled(WORST_SCOPE),
+        link: LINK,
+      }),
+  },
+  sitemapLimit: {
+    label: "Sitemap file limit",
+    url: WORST_URL,
+    respond: () =>
+      json({
+        text: llmsTxt(WORST_PROJECT, WORST_SUMMARY, padTo(1240, WORST_LINES)),
+        count: 1240,
+        failed: 0,
+        truncated: true,
+        timedOut: false,
+        unread: 0,
         unreadIsLowerBound: true,
         ...crawled(WORST_SCOPE),
         link: LINK,
